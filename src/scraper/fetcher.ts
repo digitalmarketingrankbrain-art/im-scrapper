@@ -1,13 +1,28 @@
 import { env } from "@/lib/config/env";
 import { logEvent } from "@/lib/logger";
 import type { CrawlErrorType } from "@/types";
+import { hasHealthyAlternative, nextProxy, reportProxyFailure } from "./proxy/pool";
 import { isAllowedByRobots } from "./robots";
 import { safeFetch } from "./security/safeFetch";
-import { isSafeUrl } from "./security/ssrf";
+import { checkUrl } from "./security/ssrf";
 
-const USER_AGENT = "Mozilla/5.0 (compatible; IndiaMartScraperBot/0.1; educational-project)";
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+];
+
+function getRandomUserAgent(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
 
 const MAX_BACKOFF_MS = 8000;
+/** A server-sent Retry-After beyond this is ignored — the verify phase handles long blocks, not one page's retry loop. */
+const MAX_RETRY_AFTER_MS = 30_000;
+/** Pause before retrying through a different IP — the block is per-IP, so there is nothing to wait out. */
+const ROTATE_DELAY_MS = 300;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,9 +54,15 @@ export type FetchResult = FetchSuccess | FetchFailure;
 
 /** Fetches a page with timeout + retry. Never bypasses robots.txt or access-denied responses. */
 export async function fetchWithRetry(url: string): Promise<FetchResult> {
-  if (!(await isSafeUrl(url))) {
+  const check = await checkUrl(url);
+  if (check === "private") {
     logEvent({ event: "FETCH_BLOCKED_SSRF", url, status: "skipped" });
     return { ok: false, url, errorType: "validation_error", message: "URL resolves to a private/internal address" };
+  }
+  if (check === "dns_error") {
+    // Resolver hiccup, not a bad URL — retryable, so the verify phase gets another go at it.
+    logEvent({ event: "FETCH_DNS_ERROR", url, status: "failed" });
+    return { ok: false, url, errorType: "network_error", message: "DNS lookup failed (temporary)" };
   }
 
   const allowed = await isAllowedByRobots(url);
@@ -54,10 +75,18 @@ export async function fetchWithRetry(url: string): Promise<FetchResult> {
 
   for (let attempt = 0; attempt <= env.RETRY_LIMIT; attempt++) {
     const startedAt = Date.now();
+    // A fresh proxy per attempt: a retry that reuses the blocked IP just earns the same 429.
+    const proxy = nextProxy();
 
     try {
       const res = await safeFetch(url, {
-        headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+        proxyUrl: proxy?.url,
+        headers: {
+          "User-Agent": getRandomUserAgent(),
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+        },
         signal: AbortSignal.timeout(env.REQUEST_TIMEOUT),
       });
       const duration = Date.now() - startedAt;
@@ -70,20 +99,27 @@ export async function fetchWithRetry(url: string): Promise<FetchResult> {
       if (!res.ok) {
         const isRateLimited = res.status === 429;
         const isRetryable = isRateLimited || res.status >= 500;
+        if (isRetryable) reportProxyFailure(proxy);
         lastFailure = {
           ok: false,
           url,
           httpStatus: res.status,
-          errorType: "http_error",
+          errorType: isRateLimited ? "rate_limited" : "http_error",
           message: `HTTP ${res.status}`,
         };
         logEvent({ event: "FETCH_HTTP_ERROR", url, status: String(res.status), duration, error: lastFailure.message });
+
+        // Without another IP to rotate to, retrying a 429 right here just re-hits the same block:
+        // hand it back and let the crawler's shared cooldown + verify rounds do the waiting once, for all workers.
+        if (isRateLimited && !hasHealthyAlternative(proxy)) return lastFailure;
 
         if (isRetryable && attempt < env.RETRY_LIMIT) {
           // A 429's Retry-After tells us exactly how long the server wants us to wait;
           // otherwise back off exponentially so a burst of failures doesn't just hammer again immediately.
           const retryAfterMs = isRateLimited ? parseRetryAfterMs(res.headers.get("retry-after")) : null;
-          const backoffMs = retryAfterMs ?? Math.min(500 * 2 ** attempt, MAX_BACKOFF_MS);
+          const backoffMs = hasHealthyAlternative(proxy)
+            ? ROTATE_DELAY_MS
+            : Math.min(retryAfterMs ?? Math.min(500 * 2 ** attempt, MAX_BACKOFF_MS), MAX_RETRY_AFTER_MS);
           await sleep(backoffMs);
           continue; // retry transient server errors / rate limits
         }
@@ -114,6 +150,8 @@ export async function fetchWithRetry(url: string): Promise<FetchResult> {
         message: error instanceof Error ? error.message : String(error),
       };
       logEvent({ event: "FETCH_ERROR", url, duration, error: lastFailure.message });
+      // A dead/blocked proxy looks like a network error from here — bench it and rotate.
+      reportProxyFailure(proxy);
     }
   }
 

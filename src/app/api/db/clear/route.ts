@@ -9,12 +9,21 @@ export async function POST() {
   try {
     await dbConnect();
     
+    const { rm } = await import("node:fs/promises");
+    const { IMAGES_ROOT } = await import("@/lib/images/paths");
+    await rm(IMAGES_ROOT, { recursive: true, force: true });
+
     await Promise.all([
       ScrapeJobModel.deleteMany({}),
       SellerModel.deleteMany({}),
       ProductModel.deleteMany({}),
       CrawlPageModel.deleteMany({}),
     ]);
+
+    try {
+      await ProductModel.collection.dropIndexes();
+    } catch {}
+    await ProductModel.syncIndexes();
 
     return NextResponse.json({
       status: "success",

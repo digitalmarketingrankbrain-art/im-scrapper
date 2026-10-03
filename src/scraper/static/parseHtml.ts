@@ -8,6 +8,7 @@ export interface ParsedPage {
   nextData: unknown;
   textSample: string;
   links: string[];
+  rawHtml?: string;
 }
 
 /** Generic, page-agnostic HTML parsing. Seller/product-specific extraction is Phase 5. */
@@ -57,5 +58,5 @@ export function parseHtml(html: string, baseUrl?: string): ParsedPage {
     }
   });
 
-  return { title, metaTags, jsonLd, nextData, textSample, links };
+  return { title, metaTags, jsonLd, nextData, textSample, links, rawHtml: html };
 }

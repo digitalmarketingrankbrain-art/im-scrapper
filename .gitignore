@@ -13,6 +13,9 @@ dist/
 .env
 .env*.local
 
+# scraped product images
+/downloads
+
 # misc
 .DS_Store
 *.log

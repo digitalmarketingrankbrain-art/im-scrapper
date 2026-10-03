@@ -5,6 +5,7 @@ export interface ScrapeJobData {
   /** Mongo ScrapeJob _id, as a string */
   jobId: string;
   sourceUrl: string;
+  concurrency?: number;
 }
 
 let queue: Queue<ScrapeJobData> | null = null;

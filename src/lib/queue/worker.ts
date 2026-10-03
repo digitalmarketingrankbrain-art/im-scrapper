@@ -7,7 +7,7 @@ export function createScrapeWorker(): Worker<ScrapeJobData> {
   return new Worker<ScrapeJobData>(
     "scrape",
     async (job) => {
-      await processScrapeJob(job.data.jobId, job.data.sourceUrl);
+      await processScrapeJob(job.data.jobId, job.data.sourceUrl, job.data.concurrency);
     },
     { connection: getRedisConnection(), concurrency: 1 },
   );

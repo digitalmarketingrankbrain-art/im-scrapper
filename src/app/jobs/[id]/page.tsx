@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AlertIcon, ChevronLeftIcon, CloseIcon, DownloadIcon, RefreshIcon } from "@/components/icons";
+import { JobActivity } from "@/components/JobActivity";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useCancelJob, useRetryJob } from "@/hooks/useJobActions";
 import { useJob } from "@/hooks/useJob";
@@ -123,6 +124,21 @@ export default function JobDetailPage() {
           <StatBox label="Products found" value={job.productsFound} />
           <StatBox label="Products processed" value={job.productsProcessed} />
         </div>
+        {(job.imagesTotal ?? 0) > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatBox label="Images found" value={job.imagesTotal ?? 0} />
+            <StatBox label="Images downloaded" value={job.imagesDownloaded ?? 0} />
+            <StatBox label="Images failed" value={job.imagesFailed ?? 0} />
+          </div>
+        )}
+        {(job.status === "completed" || job.phase === "verifying") && (
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatBox label="Pages recovered by retry" value={job.pagesRecovered ?? 0} />
+            <StatBox label="Pages still failed" value={job.pagesFailed ?? 0} />
+            <StatBox label="Products not saved" value={job.productsMissing ?? 0} />
+          </div>
+        )}
+        <JobActivity job={job} />
         {isActive && (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <span className="relative flex size-2">
@@ -151,7 +167,7 @@ export default function JobDetailPage() {
           <ul className="mt-2 flex flex-col gap-1.5">
             {job.errors.map((e, i) => (
               <li key={i} className="rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700 dark:bg-rose-500/10 dark:text-rose-400">
-                {e.message}
+                {e.url ? `${e.url} — ` : ""}{e.message}
               </li>
             ))}
           </ul>

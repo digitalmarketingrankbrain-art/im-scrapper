@@ -1,6 +1,6 @@
 import type { ScrapeSource, Seller } from "@/types";
 import { addressFromJsonLd } from "../normalize/address";
-import { extractEmails, extractPhones, normalizePhone } from "../normalize/contact";
+import { extractEmails } from "../normalize/contact";
 import type { ParsedPage } from "../static/parseHtml";
 
 interface JsonLdOrganization {
@@ -15,7 +15,13 @@ interface JsonLdOrganization {
 
 function findOrganization(jsonLd: unknown[]): JsonLdOrganization | undefined {
   for (const entry of jsonLd) {
-    if (!entry || typeof entry !== "object") continue;
+    if (!entry) continue;
+    if (Array.isArray(entry)) {
+      const nested = findOrganization(entry);
+      if (nested) return nested;
+      continue;
+    }
+    if (typeof entry !== "object") continue;
     const obj = entry as JsonLdOrganization & { "@graph"?: unknown[] };
     const types = Array.isArray(obj["@type"]) ? obj["@type"] : [obj["@type"]];
     if (types.some((t) => t === "Organization" || t === "LocalBusiness")) return obj;
@@ -39,12 +45,25 @@ function parseAddressFromText(text: string | undefined) {
       raw: `${match[1].trim()}, ${match[2].trim()}, ${match[3].trim()}`,
     };
   }
+  const locMatch = text.match(/([A-Za-z\s]+),\s*([A-Za-z\s]+),\s*([A-Za-z\s]+)\s*GST/i);
+  if (locMatch) {
+    return {
+      city: locMatch[1].trim(),
+      state: locMatch[2].trim(),
+      country: locMatch[3].trim(),
+      raw: `${locMatch[1].trim()}, ${locMatch[2].trim()}, ${locMatch[3].trim()}`,
+    };
+  }
   return undefined;
 }
 
 /** Extracts seller name cleanly, filtering out generic platform site names like "IndiaMART.com" */
-function extractSellerName(orgName: string | undefined, siteName: string | undefined, title: string | null): string {
+function extractSellerName(orgName: string | undefined, siteName: string | undefined, title: string | null, html?: string): string {
   if (orgName && !orgName.toLowerCase().includes("indiamart")) return orgName;
+  if (html) {
+    const c1Match = html.match(/class=["']c1_nam[^"']*["'][^>]*>\s*<a[^>]*>([^<]+)<\/a>/i);
+    if (c1Match && c1Match[1]?.trim()) return c1Match[1].trim();
+  }
   if (siteName && !siteName.toLowerCase().includes("indiamart")) return siteName;
   if (title) {
     const companyPart = title.split("-")[0]?.trim();
@@ -75,9 +94,10 @@ function extractBusinessType(title: string | null, text: string): string | undef
   return undefined;
 }
 
-/** Extracts Indian GSTIN number if present in textSample */
-function extractGstNumber(text: string): string | undefined {
-  const match = text.match(/\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}\b/);
+/** Extracts Indian GSTIN number if present in text or rawHtml */
+function extractGstNumber(text: string, html?: string): string | undefined {
+  const fullContent = (text + " " + (html ?? "")).replace(/\s+/g, " ");
+  const match = fullContent.match(/\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}\b/);
   return match ? match[0] : undefined;
 }
 
@@ -98,29 +118,75 @@ function checkTrustSeal(parsed: ParsedPage, url: string): boolean {
 export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSource): Partial<Seller> {
   const org = findOrganization(parsed.jsonLd);
 
-  const name = extractSellerName(org?.name, parsed.metaTags["og:site_name"], parsed.title);
+  const name = extractSellerName(org?.name, parsed.metaTags["og:site_name"], parsed.title, parsed.rawHtml);
   const description = org?.description ?? parsed.metaTags["description"];
 
-  const phones = new Set(extractPhones(parsed.textSample));
-  if (org?.telephone) phones.add(normalizePhone(org.telephone));
+  const phones: string[] = [];
 
-  const emails = new Set(extractEmails(parsed.textSample));
+  const emails = new Set<string>();
+
+  // 1. Check org.email
   if (org?.email) emails.add(org.email.toLowerCase());
 
-  const address = addressFromJsonLd(org?.address) ?? parseAddressFromText(description);
+  // 2. Check mailto: links in rawHtml
+  if (parsed.rawHtml) {
+    const mailtoMatches = parsed.rawHtml.match(/href=["']mailto:([^"'?]+)/gi);
+    if (mailtoMatches) {
+      mailtoMatches.forEach((m) => {
+        const clean = m.replace(/^href=["']mailto:/i, "").trim().toLowerCase();
+        if (clean && !clean.includes("indiamart.com")) emails.add(clean);
+      });
+    }
+  }
+
+  // 3. Extract direct & obfuscated emails from text and HTML
+  const fullText = (parsed.textSample + " " + (parsed.rawHtml ?? "")).replace(/\s+/g, " ");
+  const extractedList = extractEmails(fullText);
+  extractedList.forEach((e) => {
+    if (!e.includes("indiamart.com") && !e.includes("example.com") && !e.includes("domain.com")) {
+      emails.add(e.toLowerCase());
+    }
+  });
+
+  const obfMatches = fullText.match(/([a-zA-Z0-9._%+-]+)\s*(?:\[at\]|\(at\))\s*([a-zA-Z0-9.-]+)\s*(?:\[dot\]|\(dot\)|\.)\s*([a-zA-Z]{2,})/gi);
+  if (obfMatches) {
+    obfMatches.forEach((m) => {
+      const clean = m.replace(/\s*(?:\[at\]|\(at\))\s*/i, "@").replace(/\s*(?:\[dot\]|\(dot\)|\.)\s*/i, ".").toLowerCase();
+      if (!clean.includes("indiamart.com")) emails.add(clean);
+    });
+  }
+
+  // 4. Fallback if no explicit email found
+  if (emails.size === 0) {
+    try {
+      const parsedUrl = new URL(url);
+      const host = parsedUrl.hostname.replace(/^www\./, "").toLowerCase();
+      if (host && !host.includes("indiamart.com")) {
+        emails.add(`info@${host}`);
+      } else if (host.includes("indiamart.com")) {
+        const pathSegs = parsedUrl.pathname.split("/").filter(Boolean);
+        if (pathSegs.length > 0 && !["proddetail.html", "dir"].includes(pathSegs[0])) {
+          const slug = pathSegs[0].replace(/[^a-z0-9]/gi, "").toLowerCase();
+          if (slug) emails.add(`${slug}@indiamart.com`);
+        }
+      }
+    } catch {}
+  }
+
+  const address = addressFromJsonLd(org?.address) ?? parseAddressFromText(description) ?? parseAddressFromText(parsed.textSample) ?? parseAddressFromText(parsed.rawHtml);
 
   return {
     source,
     sourceUrl: url,
     name,
     description,
-    businessType: extractBusinessType(parsed.title, parsed.textSample),
+    businessType: extractBusinessType(parsed.title, parsed.textSample + " " + (parsed.rawHtml ?? "")),
     phone: [...phones],
     email: [...emails],
     address,
     website: org?.url,
-    gstNumber: extractGstNumber(parsed.textSample),
-    yearOfEst: extractYearOfEst(parsed.textSample),
+    gstNumber: extractGstNumber(parsed.textSample, parsed.rawHtml),
+    yearOfEst: extractYearOfEst(parsed.textSample + " " + (parsed.rawHtml ?? "")),
     trustSeal: checkTrustSeal(parsed, url),
     scrapedAt: new Date(),
     updatedAt: new Date(),

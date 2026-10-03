@@ -24,13 +24,19 @@ export async function fetchJobResults(jobId: string): Promise<JobResultsView> {
   return (await parseJsonOrThrow(res)) as JobResultsView;
 }
 
-export async function createJob(sourceUrl: string): Promise<{ jobId: string; status: string }> {
+export async function createJob(params: string | { sourceUrl: string; concurrency?: number }): Promise<{ jobId: string; status: string }> {
+  const payload = typeof params === "string" ? { sourceUrl: params } : params;
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sourceUrl }),
+    body: JSON.stringify(payload),
   });
   return (await parseJsonOrThrow(res)) as { jobId: string; status: string };
+}
+
+export async function deleteJob(jobId: string): Promise<{ status: string; message: string }> {
+  const res = await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
+  return (await parseJsonOrThrow(res)) as { status: string; message: string };
 }
 
 export interface JobsListParams {

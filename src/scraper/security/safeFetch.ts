@@ -1,11 +1,25 @@
-import { isSafeUrl } from "./ssrf";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { checkUrl } from "./ssrf";
 
 export interface SafeFetchInit {
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Route the request through this proxy (IP rotation). Omitted = direct connection. */
+  proxyUrl?: string;
 }
 
 const MAX_REDIRECTS = 5;
+
+const proxyAgents = new Map<string, ProxyAgent>();
+
+function agentFor(proxyUrl: string): ProxyAgent {
+  let agent = proxyAgents.get(proxyUrl);
+  if (!agent) {
+    agent = new ProxyAgent(proxyUrl);
+    proxyAgents.set(proxyUrl, agent);
+  }
+  return agent;
+}
 
 /**
  * fetch() that re-validates every redirect hop against the SSRF guard before following it —
@@ -21,15 +35,24 @@ export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<
   let currentUrl = url;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (!(await isSafeUrl(currentUrl))) {
-      throw new Error(`Refusing to fetch private/internal address: ${currentUrl}`);
-    }
+    const check = await checkUrl(currentUrl);
+    if (check === "private") throw new Error(`Refusing to fetch private/internal address: ${currentUrl}`);
+    if (check === "dns_error") throw new Error(`DNS lookup failed for ${currentUrl}`);
 
-    const res = await fetch(currentUrl, {
-      headers: init.headers,
-      signal: init.signal,
-      redirect: "manual",
-    });
+    // Proxied requests go through undici's own fetch (it owns the ProxyAgent dispatcher);
+    // direct ones keep using the platform fetch exactly as before.
+    const res = init.proxyUrl
+      ? ((await undiciFetch(currentUrl, {
+          headers: init.headers,
+          signal: init.signal,
+          redirect: "manual",
+          dispatcher: agentFor(init.proxyUrl),
+        })) as unknown as Response)
+      : await fetch(currentUrl, {
+          headers: init.headers,
+          signal: init.signal,
+          redirect: "manual",
+        });
 
     const isRedirect = res.status >= 300 && res.status < 400;
     if (!isRedirect) return res;

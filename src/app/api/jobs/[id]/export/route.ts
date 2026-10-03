@@ -3,7 +3,7 @@ import { dbConnect } from "@/lib/db/connect";
 import { ProductModel } from "@/lib/db/models/Product";
 import { ScrapeJobModel } from "@/lib/db/models/ScrapeJob";
 import { SellerModel } from "@/lib/db/models/Seller";
-import { toCsv } from "@/lib/export/csv";
+import { formatProductRow, toCsv } from "@/lib/export/csv";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -22,14 +22,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const products = job.sellerId ? await ProductModel.find({ sellerId: job.sellerId }).lean() : [];
 
   if (format === "csv") {
-    const rows = products.map((product) => ({
-      name: product.name,
-      category: product.category ?? "",
-      brand: product.brand ?? "",
-      price: product.price?.raw ?? "",
-      minimumOrderQuantity: product.minimumOrderQuantity ?? "",
-      sourceUrl: product.sourceUrl,
-    }));
+    const rows = products.map((product) => formatProductRow(product, seller));
     return new NextResponse(toCsv(rows), {
       headers: {
         "Content-Type": "text/csv",

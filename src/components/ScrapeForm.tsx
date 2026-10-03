@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AlertIcon, LinkIcon, SpinnerIcon, ZapIcon } from "@/components/icons";
 
 interface ScrapeFormProps {
-  onSubmit: (sourceUrl: string) => void;
+  onSubmit: (sourceUrl: string, concurrency?: number) => void;
   submitting: boolean;
   error: string | null;
 }
@@ -22,6 +22,7 @@ const SAMPLE_URLS = [
 
 export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
   const [sourceUrl, setSourceUrl] = useState("");
+  const [concurrency, setConcurrency] = useState<number>(6);
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -29,7 +30,7 @@ export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (sourceUrl.trim()) {
-            onSubmit(sourceUrl.trim());
+            onSubmit(sourceUrl.trim(), concurrency);
           }
         }}
         className="flex flex-col gap-3 sm:flex-row"
@@ -45,6 +46,19 @@ export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
             className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-600/10 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50 dark:placeholder:text-slate-500 dark:focus:border-blue-500 dark:focus:ring-blue-500/10"
           />
         </div>
+
+        {/* Speed / Concurrency Control */}
+        <select
+          value={concurrency}
+          onChange={(e) => setConcurrency(Number(e.target.value))}
+          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+          title="Scraping Speed / Concurrency (Parallel Workers)"
+        >
+          <option value={2}>Speed: Gentle (2 Workers)</option>
+          <option value={6}>Speed: Standard (6 Workers)</option>
+          <option value={10}>Speed: Fast (10 Workers)</option>
+          <option value={16}>Speed: Ultra-Fast (16 Workers)</option>
+        </select>
         <button
           type="submit"
           disabled={submitting}

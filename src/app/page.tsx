@@ -48,9 +48,9 @@ export default function Home() {
   const { data: results } = useJobResults(selectedJobId, job?.status);
   const createJobMutation = useCreateJob();
 
-  function handleSubmit(sourceUrl: string) {
+  function handleSubmit(sourceUrl: string, concurrency?: number) {
     setClearNotice(null);
-    createJobMutation.mutate(sourceUrl, {
+    createJobMutation.mutate({ sourceUrl, concurrency }, {
       onSuccess: (data) => {
         dispatch(selectJob(data.jobId));
       },
@@ -71,7 +71,8 @@ export default function Home() {
       const data = await res.json();
       if (res.ok) {
         dispatch(selectJob(""));
-        queryClient.invalidateQueries();
+        queryClient.clear();
+        await queryClient.refetchQueries();
         setClearNotice(data.message || "Database cleared successfully!");
       } else {
         alert(`Error clearing database: ${data.message}`);

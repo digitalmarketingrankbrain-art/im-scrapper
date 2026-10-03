@@ -13,10 +13,11 @@ export async function upsertSeller(data: Partial<Seller>) {
 }
 
 export async function upsertProduct(sellerId: string, data: Partial<Product>) {
-  if (!data.sourceUrl) throw new Error("sourceUrl is required to upsert a product");
+  if (!data.name) throw new Error("name is required to upsert a product");
+  const nameTrimmed = data.name.trim();
   return ProductModel.findOneAndUpdate(
-    { sourceUrl: data.sourceUrl },
-    { $set: { ...data, sellerId } },
+    { sellerId, name: nameTrimmed },
+    { $set: { ...data, sellerId, name: nameTrimmed } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 }

@@ -50,7 +50,10 @@ function toResult(
 
 /**
  * "auto" tries Cheerio first (cheap) and only pays for a Playwright render when the static
- * page looks like an empty JS shell — most pages don't need a browser at all.
+ * page loaded fine but looks like an empty JS shell — most pages don't need a browser at all.
+ * A failed static fetch (429, 5xx, timeout) is NOT sent to the browser: the browser would hit the
+ * same block from the same IP, and spawning Chromium on top of a rate limit is what crashed it.
+ * The crawler's verify phase retries those pages later instead.
  */
 export async function scrapePage(url: string, mode: ScrapeMode = "auto"): Promise<ScrapeStaticResult> {
   const fetchedAt = new Date().toISOString();
@@ -63,7 +66,7 @@ export async function scrapePage(url: string, mode: ScrapeMode = "auto"): Promis
 
   if (mode === "static") return staticResult;
 
-  const needsRender = !staticResult.ok || !staticResult.data || isThin(staticResult.data);
+  const needsRender = staticResult.ok && !!staticResult.data && isThin(staticResult.data);
   if (!needsRender) return staticResult;
 
   const dynamicResult = toResult(url, fetchedAt, "dynamic", await renderWithPlaywright(url));

@@ -21,7 +21,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   job.status = "pending";
+  job.phase = undefined;
   job.progress = 0;
+  job.pagesRecovered = 0;
+  job.pagesFailed = 0;
+  job.retryRound = 0;
+  job.productsMissing = 0;
   job.pagesDiscovered = 0;
   job.pagesProcessed = 0;
   job.productsFound = 0;

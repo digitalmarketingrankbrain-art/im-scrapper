@@ -8,6 +8,7 @@ import { isSafeUrl } from "@/scraper/security/ssrf";
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const sourceUrl = body?.sourceUrl;
+  const concurrency = typeof body?.concurrency === "number" && body.concurrency >= 1 ? body.concurrency : undefined;
 
   if (!sourceUrl || typeof sourceUrl !== "string") {
     return NextResponse.json({ status: "error", message: "Missing 'sourceUrl' in request body" }, { status: 400 });
@@ -30,13 +31,13 @@ export async function POST(request: NextRequest) {
   const job = await ScrapeJobModel.create({ sourceUrl, status: "pending" });
 
   try {
-    await getScrapeQueue().add("scrape", { jobId: String(job._id), sourceUrl }, { jobId: String(job._id) });
+    await getScrapeQueue().add("scrape", { jobId: String(job._id), sourceUrl, concurrency }, { jobId: String(job._id) });
   } catch (queueErr) {
     console.warn("Queue dispatch failed, falling back to direct background execution:", queueErr);
   }
 
   // Trigger immediate background execution so jobs never hang in pending
-  processScrapeJob(String(job._id), sourceUrl).catch((err) => {
+  processScrapeJob(String(job._id), sourceUrl, concurrency).catch((err) => {
     console.error(`ScrapeJob ${job._id} execution failed:`, err);
   });
 

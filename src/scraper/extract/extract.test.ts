@@ -42,7 +42,7 @@ describe("Seller & Product Data Extraction", () => {
 
       expect(seller.name).toBe("Acme Industrial Pvt Ltd");
       expect(seller.description).toBe("Leading manufacturer of industrial tools and machinery");
-      expect(seller.phone).toContain("9876543210");
+      expect(seller.phone).toEqual([]);
       expect(seller.email).toContain("sales@acmeind.com");
       expect(seller.email).toContain("info@acmeind.com");
       expect(seller.website).toBe("https://www.acmeind.com");
@@ -74,7 +74,7 @@ describe("Seller & Product Data Extraction", () => {
 
       expect(seller.name).toBe("Global Tech Traders");
       expect(seller.description).toBe("Exporter of electronic items");
-      expect(seller.phone).toContain("9123456789");
+      expect(seller.phone).toEqual([]);
     });
   });
 

@@ -20,7 +20,11 @@ export interface Address {
 export interface ImageRef {
   url: string;
   alt?: string;
-  source: "src" | "data-src" | "srcset" | "og" | "json-ld";
+  source: "src" | "data-src" | "srcset" | "og" | "json-ld" | "html";
+  /** Absolute path of the downloaded file, once the image has been saved to disk. */
+  localPath?: string;
+  /** Why the download failed, when it did. */
+  downloadError?: string;
 }
 
 export interface Seller {
@@ -70,6 +74,8 @@ export type ScrapeJobStatus =
 
 export type CrawlErrorType =
   | "network_error"
+  | "rate_limited"
+  | "browser_crash"
   | "timeout"
   | "http_error"
   | "parsing_error"
@@ -85,15 +91,31 @@ export interface ScrapeError {
   occurredAt: Date;
 }
 
+/** Which stage of the discover -> scrape -> verify workflow a running job is in. */
+export type ScrapePhase = "discovering" | "scraping" | "verifying" | "downloading" | "done";
+
 export interface ScrapeJob {
   sourceUrl: string;
   sellerId?: string;
   status: ScrapeJobStatus;
+  phase?: ScrapePhase;
   progress: number;
+  /** Total pages found. Settled once discovery ends; only grows afterwards if a retried page reveals new links. */
   pagesDiscovered: number;
   pagesProcessed: number;
+  /** Pages that failed (rate limit, crash, timeout...) at least once and were later fetched successfully. */
+  pagesRecovered?: number;
+  /** Pages still failing after every verification round. */
+  pagesFailed?: number;
+  retryRound?: number;
+  /** Distinct products found across all fetched pages. */
   productsFound: number;
   productsProcessed: number;
+  /** Products found on a page but not saved to the database after verification. */
+  productsMissing?: number;
+  imagesTotal?: number;
+  imagesDownloaded?: number;
+  imagesFailed?: number;
   errors: ScrapeError[];
   startedAt?: Date;
   completedAt?: Date;
