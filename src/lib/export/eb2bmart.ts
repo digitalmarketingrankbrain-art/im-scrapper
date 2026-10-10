@@ -7,6 +7,8 @@
  * fields with no source are emitted as empty strings / null, as Aajjo does for its own gaps.
  */
 
+import { buildXlsx } from "./xlsx";
+
 export interface Eb2bmartRecord {
   product_name: string;
   price: { amount: number | null; currency: string };
@@ -208,6 +210,20 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
   const category = rawCategory.toLowerCase() === sellerName ? "" : rawCategory;
   const subCategory = str(product.subCategory);
 
+  // Key features: explicit "Key Features:" block in the text, else the page's own bullet list,
+  // else the first few specifications (IndiaMart's headline attributes) so the column isn't blank when data exists.
+  const description = parseDescription(str(product.description));
+  if (Object.keys(description.key_features).length === 0) {
+    const scraped = (product.keyFeatures as Record<string, unknown> | undefined) ?? {};
+    for (const [name, value] of Object.entries(scraped)) {
+      const key = toSnakeCase(name);
+      if (key && value) description.key_features[key] = decodeEntities(str(value));
+    }
+  }
+  if (Object.keys(description.key_features).length === 0) {
+    for (const [key, value] of Object.entries(specifications).slice(0, 5)) description.key_features[key] = value;
+  }
+
   return {
     product_name: decodeEntities(str(product.name)),
     price: { amount: price?.value ?? null, currency: price?.currency || "INR" },
@@ -232,7 +248,7 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
     },
     images: imageUrls(product),
     specifications,
-    description: parseDescription(str(product.description)),
+    description,
   };
 }
 
@@ -248,14 +264,27 @@ function flatten(value: unknown, prefix: string, out: Record<string, string>): v
   }
 }
 
-/** One CSV row: nested fields become dotted columns, images join with "|", specifications/key_features stay as single JSON cells. */
+/** CSV cells hold plain text for spreadsheets: {"battery_voltage":"36 V"} -> "Battery Voltage: 36 V; ...". */
+function toReadableText(map: Record<string, string>): string {
+  return Object.entries(map)
+    .map(([key, value]) => {
+      const label = key
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      return `${label}: ${value}`;
+    })
+    .join("; ");
+}
+
+/** One CSV row: nested fields become dotted columns, images join with "|", specifications/key_features become "Label: value; Label: value" text. */
 export function toFlatRow(record: Eb2bmartRecord): Record<string, string> {
   const out: Record<string, string> = {};
   flatten(
     {
       ...record,
-      specifications: JSON.stringify(record.specifications),
-      description: { ...record.description, key_features: JSON.stringify(record.description.key_features) },
+      specifications: toReadableText(record.specifications),
+      description: { ...record.description, key_features: toReadableText(record.description.key_features) },
     },
     "",
     out,
@@ -284,3 +313,53 @@ export function toEb2bmartCsv(records: Eb2bmartRecord[]): string {
 export function toEb2bmartJson(records: Eb2bmartRecord[]): string {
   return JSON.stringify(records, null, 2);
 }
+
+function xmlCell(value: string): string {
+  // Strip control chars XML 1.0 forbids; Excel caps a cell at 32,767 characters.
+  const clean = value
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .slice(0, 32767)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "&#10;");
+  // Everything is typed String so phone numbers / GST numbers keep their leading +, 0s and exact digits.
+  return `<Cell><Data ss:Type="String">${clean}</Data></Cell>`;
+}
+
+/** Excel 2003 XML spreadsheet (.xls): opens in Excel/LibreOffice/Sheets with no extra dependency. */
+function xlsFrom(sheetName: string, columns: readonly string[], records: Eb2bmartRecord[]): string {
+  const rows = [`<Row>${columns.map(xmlCell).join("")}</Row>`];
+  for (const record of records) {
+    const row = toFlatRow(record);
+    rows.push(`<Row>${columns.map((c) => xmlCell(row[c])).join("")}</Row>`);
+  }
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<?mso-application progid="Excel.Sheet"?>\n` +
+    `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n` +
+    `<Worksheet ss:Name="${sheetName}"><Table>\n${rows.join("\n")}\n</Table></Worksheet>\n</Workbook>\n`
+  );
+}
+
+export function toEb2bmartXls(records: Eb2bmartRecord[]): string {
+  return xlsFrom("Products", EB2BMART_COLUMNS, records);
+}
+
+/**
+ * Real .xlsx matching the reference upload sheet (Door.xlsx): one "Products" sheet, all 25 columns
+ * including seller/company, every cell text, and specifications / key_features as JSON objects
+ * (`{"material":"Mild Steel"}`, `{}` when empty) rather than the readable text the CSV uses.
+ */
+export function toEb2bmartXlsx(records: Eb2bmartRecord[]): Buffer {
+  const rows = records.map((record) => {
+    const row = toFlatRow(record);
+    row["specifications"] = JSON.stringify(record.specifications);
+    row["description.key_features"] = JSON.stringify(record.description.key_features);
+    return EB2BMART_COLUMNS.map((c) => row[c]);
+  });
+  return buildXlsx("Products", EB2BMART_COLUMNS, rows);
+}
+
+export const XLS_CONTENT_TYPE ="application/vnd.ms-excel; charset=utf-8";

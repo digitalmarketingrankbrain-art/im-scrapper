@@ -71,8 +71,9 @@ describe("EB2BMART export format", () => {
     const row = toFlatRow(buildEb2bmartRecord(product, seller));
     expect(Object.keys(row)).toEqual([...EB2BMART_COLUMNS]);
     expect(row["price.amount"]).toBe("45000");
-    expect(JSON.parse(row.specifications).battery_voltage).toBe("36 V");
-    expect(row["description.key_features"]).toBe("{}");
+    expect(row.specifications).toContain("Battery Voltage: 36 V; Color: Black");
+    // No key-feature text on the page -> falls back to the leading specifications instead of an empty cell
+    expect(row["description.key_features"]).toContain("Battery Voltage: 36 V");
   });
 
   it("quotes cells with commas/quotes/newlines and leaves +/- values untouched", () => {

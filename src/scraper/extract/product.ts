@@ -16,9 +16,79 @@ interface JsonLdProduct {
   offers?: JsonLdOffer | JsonLdOffer[];
   image?: string | string[];
   url?: string;
+  additionalProperty?: { name?: string; value?: string | number }[] | { name?: string; value?: string | number };
 }
 
 /** Collects ALL Products inside JSON-LD blocks (including array graphs). */
+/** One product never needs more than this many photos — listing pages drag in dozens from neighbouring cards. */
+export const MAX_IMAGES_PER_PRODUCT = 5;
+
+/** Same photo at another size (`-250x250` vs `-500x500`) counts once. Keeps DOM order, so the product's own main image wins. */
+export function limitImages<T extends { url: string }>(images: T[] | undefined): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (const img of images ?? []) {
+    const key = img.url.replace(/-\d{2,4}x\d{2,4}(\.[a-z0-9]+)?(\?.*)?$/i, "$1");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(img);
+    if (kept.length >= MAX_IMAGES_PER_PRODUCT) break;
+  }
+  return kept;
+}
+
+const PAIR_RE = /^([A-Za-z][^:\n]{1,50}?)\s*:\s*(\S.{0,299})$/;
+const NOISE_RE = /get (latest )?price|contact (seller|us)|send (inquiry|enquiry)|call |thanks for contacting|read more|view (more|all)/i;
+
+export interface CardDetails {
+  specs: Record<string, string>;
+  keyFeatures: Record<string, string>;
+}
+
+/**
+ * Pulls "label -> value" specs and key-feature bullets out of a DOM block. IndiaMart renders them in
+ * different shapes depending on the page: <table> rows, <dl>, "Label: value" lines, or plain <ul> bullets.
+ */
+export function extractCardDetails($: cheerio.CheerioAPI, root: ReturnType<cheerio.CheerioAPI>): CardDetails {
+  const specs: Record<string, string> = {};
+  const keyFeatures: Record<string, string> = {};
+  const addSpec = (label: string, value: string) => {
+    const key = label.trim().replace(/:\s*$/, "");
+    const val = value.replace(/\s+/g, " ").trim();
+    if (key && val && key.length < 60 && val.length < 300 && !NOISE_RE.test(key) && !(key in specs)) specs[key] = val;
+  };
+
+  root.find("table tr").each((_, tr) => {
+    const cells = $(tr).find("td, th");
+    if (cells.length >= 2) addSpec($(cells[0]).text(), $(cells[1]).text());
+  });
+  root.find("dl dt").each((_, dt) => addSpec($(dt).text(), $(dt).next("dd").text()));
+  // Two-cell rows built from divs/spans (class names vary: label/value, key/val, ...)
+  root.find("[class*='label'], [class*='lbl'], [class*='spec-name']").each((_, el) => {
+    const $el = $(el);
+    if ($el.children().length > 0) return;
+    const sib = $el.next("[class*='value'], [class*='val'], [class*='spec-val']");
+    if (sib.length) addSpec($el.text(), sib.text());
+  });
+
+  let bullet = 0;
+  root.find("li, p, div, span").each((_, el) => {
+    const $el = $(el);
+    if ($el.children("li, p, div, ul, table").length > 0) return; // leaf blocks only
+    const text = $el.text().replace(/\s+/g, " ").trim();
+    if (!text || text.length < 3 || text.length > 300 || NOISE_RE.test(text)) return;
+    const m = text.match(PAIR_RE);
+    if (m) {
+      addSpec(m[1], m[2]);
+      if ($el.is("li")) keyFeatures[m[1].trim()] = m[2].trim();
+    } else if ($el.is("li") && text.length >= 8) {
+      keyFeatures[`feature_${++bullet}`] = text;
+    }
+  });
+
+  return { specs, keyFeatures };
+}
+
 function findAllProducts(jsonLd: unknown[]): JsonLdProduct[] {
   const results: JsonLdProduct[] = [];
 
@@ -142,7 +212,22 @@ export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSo
   const item = items[0];
   const imItems = findAllIndiaMartProductData(parsed.nextData);
   const imData = imItems[0];
-  const specs = specifications(imData?.ISQ);
+  let specs = specifications(imData?.ISQ);
+  let keyFeatures: Record<string, string> | undefined;
+
+  const extraProps = item?.additionalProperty ? [item.additionalProperty].flat() : [];
+  for (const prop of extraProps) {
+    if (prop?.name && prop.value !== undefined && prop.value !== "") {
+      specs = { ...specs, [prop.name]: String(prop.value) };
+    }
+  }
+  // Product detail pages: read the visible spec table / feature list for whatever the JSON payloads lacked.
+  if (parsed.rawHtml) {
+    const $ = cheerio.load(parsed.rawHtml);
+    const details = extractCardDetails($, $("body"));
+    if ((!specs || Object.keys(specs).length === 0) && Object.keys(details.specs).length > 0) specs = details.specs;
+    if (Object.keys(details.keyFeatures).length > 0) keyFeatures = details.keyFeatures;
+  }
 
   const name = extractProductName(item, parsed.metaTags["og:title"], parsed.title, url);
   const description = item?.description ?? parsed.metaTags["description"];
@@ -172,6 +257,7 @@ export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSo
     price,
     minimumOrderQuantity: imData ? minimumOrderQuantity(imData) : undefined,
     specifications: specs,
+    keyFeatures,
     images,
     scrapedAt: new Date(),
     updatedAt: new Date(),
@@ -254,17 +340,7 @@ function extractDomProducts(rawHtml: string | undefined, pageUrl: string, source
       }
     });
 
-    const specs: Record<string, string> = {};
-    $card.find("table tr").each((_, trEl) => {
-      const tds = $(trEl).find("td, th");
-      if (tds.length >= 2) {
-        const key = $(tds[0]).text().trim().replace(/:\s*$/, "");
-        const val = $(tds[1]).text().trim();
-        if (key && val && key.length < 60 && val.length < 300) {
-          specs[key] = val;
-        }
-      }
-    });
+    const { specs, keyFeatures } = extractCardDetails($, $card);
 
     const category = pageCategory || specs["Category"] || specs["Product Type"] || undefined;
     const subCategory = specs["Application"] || specs["Battery Type"] || specs["Battery Form Factor"] || undefined;
@@ -303,6 +379,7 @@ function extractDomProducts(rawHtml: string | undefined, pageUrl: string, source
       price,
       minimumOrderQuantity: moq,
       specifications: Object.keys(specs).length > 0 ? specs : undefined,
+      keyFeatures: Object.keys(keyFeatures).length > 0 ? keyFeatures : undefined,
       images,
       scrapedAt: new Date(),
       updatedAt: new Date(),
@@ -444,5 +521,5 @@ export function extractProducts(parsed: ParsedPage, pageUrl: string, source: Scr
     }
   }
 
-  return Array.from(productsMap.values());
+  return Array.from(productsMap.values()).map((p) => ({ ...p, images: limitImages(p.images) }));
 }

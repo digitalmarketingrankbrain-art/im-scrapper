@@ -5,6 +5,7 @@ import { ProductModel } from "@/lib/db/models/Product";
 import { logEvent } from "@/lib/logger";
 import { hasHealthyAlternative, nextProxy, reportProxyFailure } from "@/scraper/proxy/pool";
 import { safeFetch } from "@/scraper/security/safeFetch";
+import { limitImages } from "@/scraper/extract/product";
 import type { ImageRef } from "@/types";
 import { sellerImageDir, slugify } from "./paths";
 
@@ -181,7 +182,8 @@ export async function downloadProductImages(params: {
 
   for (const product of products) {
     const id = String(product._id);
-    const images = ((product.images ?? []) as ImageRef[]).map((img) => ({ ...img }));
+    // Products saved before the cap existed can carry dozens of images — only the first few are the product's own.
+    const images = limitImages((product.images ?? []) as ImageRef[]).map((img) => ({ ...img }));
     imagesByProduct.set(id, images);
 
     // Two products can slugify to the same folder name — keep them apart.

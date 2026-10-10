@@ -61,6 +61,14 @@ export default function ResultsTabs({ seller, products }: ResultsTabsProps) {
               CSV
             </a>
             <a
+              href={`/api/jobs/${selectedJobId}/export?format=xlsx`}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <DownloadIcon width="14" height="14" />
+              XLSX
+            </a>
+            <a
               href={`/api/jobs/${selectedJobId}/export?format=json`}
               download
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"

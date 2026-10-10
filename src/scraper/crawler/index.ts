@@ -50,6 +50,9 @@ const REQUEST_JITTER_MS = 150;
  */
 const RATE_LIMIT_COOLDOWN_MS = 8_000;
 const MAX_RATE_LIMIT_COOLDOWN_MS = 60_000;
+/** Retry rounds wait much longer than in-crawl backoff: a per-IP block usually needs minutes, not seconds, to lift. */
+const RETRY_ROUND_COOLDOWN_MS = 45_000;
+const MAX_RETRY_ROUND_COOLDOWN_MS = 300_000;
 /**
  * A retry round gives up after this many 429s in a row. The block is per-IP, so once the site has
  * refused a few retries in a row the rest of the round will be refused too — and every extra
@@ -273,7 +276,7 @@ export class CrawlSession {
     if (targets.length === 0) return 0;
 
     // Each round waits longer than the last: a block that survived 15s may clear after 30s or 60s.
-    const roundCooldown = Math.min(RATE_LIMIT_COOLDOWN_MS * 2 ** (round - 1), MAX_RATE_LIMIT_COOLDOWN_MS);
+    const roundCooldown = Math.min(RETRY_ROUND_COOLDOWN_MS * 2 ** (round - 1), MAX_RETRY_ROUND_COOLDOWN_MS);
     this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + roundCooldown);
     logEvent({ event: "CRAWL_VERIFY_ROUND", status: "start", round, duration: roundCooldown, pages: targets.length });
     this.onActivity?.({

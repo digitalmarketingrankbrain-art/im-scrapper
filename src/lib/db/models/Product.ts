@@ -29,6 +29,7 @@ const productSchema = new Schema(
     price: moneySchema,
     minimumOrderQuantity: String,
     specifications: Schema.Types.Mixed,
+    keyFeatures: Schema.Types.Mixed,
     brand: String,
     model: String,
     images: [imageSchema],

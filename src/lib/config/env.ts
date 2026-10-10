@@ -6,8 +6,8 @@ const envSchema = z.object({
 
   // Crawl-wide limits — enforced starting Phase 4, safe defaults defined now
   MAX_CRAWL_DEPTH: z.coerce.number().int().positive().default(3),
-  MAX_PAGES: z.coerce.number().int().positive().default(50),
-  MAX_PRODUCTS: z.coerce.number().int().positive().default(200),
+  MAX_PAGES: z.coerce.number().int().positive().default(1000),
+  MAX_PRODUCTS: z.coerce.number().int().positive().default(2000),
   // Kept low by default — sites like IndiaMart start returning 429s well before 6 parallel
   // requests, and the crawler's own cooldown (see crawler/index.ts) can't undo a block that
   // a too-eager default concurrency keeps re-triggering.

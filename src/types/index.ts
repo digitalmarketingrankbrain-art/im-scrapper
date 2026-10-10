@@ -59,6 +59,7 @@ export interface Product {
   price?: Money;
   minimumOrderQuantity?: string;
   specifications?: Record<string, string>;
+  keyFeatures?: Record<string, string>;
   brand?: string;
   model?: string;
   images: ImageRef[];

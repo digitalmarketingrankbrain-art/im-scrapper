@@ -5,10 +5,17 @@ import { DownloadIcon, FileTextIcon } from "@/components/icons";
 import { useProductCategories } from "@/hooks/useProducts";
 import { useSellers } from "@/hooks/useSellers";
 
-type ExportFormat = "json" | "csv";
+type ExportFormat = "json" | "csv" | "xls" | "xlsx";
+
+const FORMAT_HINTS: Record<ExportFormat, string> = {
+  csv: "Flat CSV — one row per product, all columns",
+  xlsx: "Excel workbook (.xlsx) — full upload sheet, all columns incl. seller",
+  xls: "Legacy Excel sheet (.xls) — same columns as CSV",
+  json: "Full nested JSON documents",
+};
 
 export default function ExportPage() {
-  const [format, setFormat] = useState<ExportFormat>("csv");
+  const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [category, setCategory] = useState("");
   const [sellerId, setSellerId] = useState("");
 
@@ -28,14 +35,14 @@ export default function ExportPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">Export</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Download the scraped product catalog as JSON or CSV.
+          Download the scraped product catalog as JSON, CSV or Excel (.xlsx / .xls).
         </p>
       </header>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">Format</h2>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {(["csv", "json"] as const).map((f) => (
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(["xlsx", "csv", "xls", "json"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFormat(f)}
@@ -48,7 +55,7 @@ export default function ExportPage() {
               <FileTextIcon width="16" height="16" className={format === f ? "text-blue-700 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"} />
               <span className="text-sm font-medium text-slate-900 uppercase dark:text-slate-50">{f}</span>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                {f === "csv" ? "Flat CSV — one row per product" : "Full nested JSON documents"}
+                {FORMAT_HINTS[f]}
               </span>
             </button>
           ))}

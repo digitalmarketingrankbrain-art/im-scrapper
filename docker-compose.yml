@@ -19,6 +19,32 @@ services:
     volumes:
       - redis_data:/data
 
+  # Web UI + API on http://localhost:3002
+  web:
+    build: .
+    container_name: indiamart-scraper-web
+    restart: unless-stopped
+    depends_on: [mongo, redis]
+    ports:
+      - "3002:3002"
+    env_file: .env.docker
+    volumes:
+      - images_data:/app/downloads
+
+  # Background scraper — picks jobs off the Redis queue; shares the image folder with web
+  worker:
+    build: .
+    container_name: indiamart-scraper-worker
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/worker.ts"]
+    depends_on: [mongo, redis]
+    env_file: .env.docker
+    # Chromium needs more shared memory than Docker's 64MB default
+    shm_size: "1gb"
+    volumes:
+      - images_data:/app/downloads
+
 volumes:
+  images_data:
   mongo_data:
   redis_data:
