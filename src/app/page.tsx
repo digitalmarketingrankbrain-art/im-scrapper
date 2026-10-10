@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQueryClient } from "@tanstack/react-query";
 import { JobProgressCard } from "@/components/JobProgressCard";
+import { LiveProgressPanel } from "@/components/LiveProgressPanel";
 import { RecentJobsList } from "@/components/RecentJobsList";
 import { ScrapeForm } from "@/components/ScrapeForm";
 import { TrashIcon, CheckCircleIcon, SpinnerIcon } from "@/components/icons";
@@ -13,7 +14,7 @@ import { useJobResults } from "@/hooks/useJobResults";
 import { useRecentJobs } from "@/hooks/useRecentJobs";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectJob } from "@/store/uiSlice";
-import type { ScrapeJobView } from "@/types/dashboard";
+import { ACTIVE_JOB_STATUSES, type ScrapeJobView } from "@/types/dashboard";
 
 const DashboardErrorBoundary = dynamic(() => import("@/components/DashboardErrorBoundary"));
 
@@ -45,6 +46,13 @@ export default function Home() {
 
   const { data: recentJobs = [] } = useRecentJobs();
   const { data: job } = useJob(selectedJobId);
+
+  // Nothing picked yet (e.g. page reload mid-scrape) — follow the job that is running.
+  useEffect(() => {
+    if (selectedJobId) return;
+    const active = recentJobs.find((j) => ACTIVE_JOB_STATUSES.has(j.status));
+    if (active) dispatch(selectJob(active._id));
+  }, [selectedJobId, recentJobs, dispatch]);
   const { data: results } = useJobResults(selectedJobId, job?.status);
   const createJobMutation = useCreateJob();
 
@@ -86,7 +94,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-8">
         {/* Header */}
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -121,25 +129,32 @@ export default function Home() {
           </div>
         )}
 
-        {/* Input Form */}
-        <ScrapeForm
-          onSubmit={handleSubmit}
-          submitting={createJobMutation.isPending}
-          error={createJobMutation.error?.message ?? null}
-        />
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            {/* Input Form */}
+            <ScrapeForm
+              onSubmit={handleSubmit}
+              submitting={createJobMutation.isPending}
+              error={createJobMutation.error?.message ?? null}
+            />
 
-        {/* Progress Monitor */}
-        {job && <JobProgressCard job={job} />}
+            {/* Progress Monitor */}
+            {job && <JobProgressCard job={job} />}
 
-        {/* Results Container */}
-        {results && (results.seller || results.products.length > 0) && (
-          <DashboardErrorBoundary title="Couldn't display results">
-            <ResultsTabs seller={results.seller} products={results.products} />
-          </DashboardErrorBoundary>
-        )}
+            {/* Results Container */}
+            {results && (results.seller || results.products.length > 0) && (
+              <DashboardErrorBoundary title="Couldn't display results">
+                <ResultsTabs seller={results.seller} products={results.products} />
+              </DashboardErrorBoundary>
+            )}
 
-        {/* Recent Jobs Drawer */}
-        <RecentJobsList jobs={recentJobs} onSelect={handleSelectRecentJob} />
+            {/* Recent Jobs Drawer */}
+            <RecentJobsList jobs={recentJobs} onSelect={handleSelectRecentJob} />
+          </div>
+          <div className="lg:sticky lg:top-6">
+            <LiveProgressPanel job={job} />
+          </div>
+        </div>
       </main>
     </div>
   );

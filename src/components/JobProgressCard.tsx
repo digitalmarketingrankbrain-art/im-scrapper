@@ -47,7 +47,7 @@ export function JobProgressCard({ job }: { job: ScrapeJobView }) {
       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
         <div
           className="h-full rounded-full bg-blue-600 transition-all duration-500 ease-out dark:bg-blue-500"
-          style={{ width: `${job.progress ?? 0}%` }}
+          style={{ width: `${job.status === "failed" && !job.productsFound ? 0 : job.progress ?? 0}%` }}
         />
       </div>
       <p className="mt-2 text-xs tabular-nums text-slate-500 dark:text-slate-400">

@@ -3,7 +3,7 @@ import { dbConnect } from "@/lib/db/connect";
 import { ProductModel } from "@/lib/db/models/Product";
 // Imported for its side effect: populate("sellerId") needs the Seller model registered.
 import "@/lib/db/models/Seller";
-import { formatProductRow, toCsv } from "@/lib/export/csv";
+import { buildEb2bmartRecord, toEb2bmartCsv, toEb2bmartJson } from "@/lib/export/eb2bmart";
 
 const EXPORT_LIMIT = 5000;
 
@@ -30,17 +30,22 @@ export async function GET(request: NextRequest) {
     .limit(EXPORT_LIMIT)
     .lean();
 
+  // Same EB2BMART upload format as the per-job export.
+  const records = products.map((product) => buildEb2bmartRecord(product, product.sellerId));
+
   if (format === "csv") {
-    const rows = products.map((product) => formatProductRow(product, product.sellerId));
-    return new NextResponse(toCsv(rows), {
+    return new NextResponse(toEb2bmartCsv(records), {
       headers: {
-        "Content-Type": "text/csv",
+        "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="products-export.csv"`,
       },
     });
   }
 
-  return NextResponse.json(products, {
-    headers: { "Content-Disposition": `attachment; filename="products-export.json"` },
+  return new NextResponse(toEb2bmartJson(records), {
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="products-export.json"`,
+    },
   });
 }

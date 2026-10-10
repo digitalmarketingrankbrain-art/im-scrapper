@@ -218,7 +218,7 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
         await job.save();
       });
 
-      await session.retryFailed(round);
+      const recoveredThisRound = await session.retryFailed(round);
 
       collectProducts(session.successfulPages());
       await serialize(async () => {
@@ -229,6 +229,12 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
         await job.save();
       });
       await persistPending("verifying");
+
+      // Another round against an IP that is still blocked only burns a minute per page.
+      if (recoveredThisRound === 0 && session.lastRoundBlocked) {
+        await note({ message: "Still rate limited after retrying — stopping retries; remaining pages stay unfetched", level: "warn" });
+        break;
+      }
     }
 
     await note({ message: "Step 3/4 · Cross-checking found products against the database", level: "info" });
@@ -328,7 +334,8 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
       job.phase = "done";
       job.currentAction = undefined;
       job.waitingUntil = undefined;
-      job.progress = 100;
+      // A job that never loaded a single page did not get 100% of anything.
+      if (!noPagesLoaded) job.progress = 100;
       job.status = noPagesLoaded ? "failed" : "completed";
       job.completedAt = new Date();
       await job.save();

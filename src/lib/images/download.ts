@@ -73,18 +73,35 @@ async function findExisting(dir: string, hash: string): Promise<string | null> {
   return files.find((f) => f.includes(`-${hash}.`)) ?? null;
 }
 
+/** IndiaMart serves listing thumbnails as `name-250x250.jpg`; the same path with `-1000x1000` is the full-size photo. */
+function largerVariant(url: string): string | null {
+  const large = url.replace(/-(\d{2,4})x(\d{2,4})(\.[a-z0-9]+)(\?.*)?$/i, "-1000x1000$3$4");
+  return large === url ? null : large;
+}
+
 async function downloadOne(task: Task): Promise<Outcome> {
+  // The hash is of the URL as scraped, so re-runs find the file no matter which size variant was saved.
   const hash = createHash("sha1").update(task.url).digest("hex").slice(0, 8);
 
   // Re-runs (job retry, re-scrape) must not re-download what is already on disk.
   const existing = await findExisting(task.dir, hash);
   if (existing) return { ok: true, localPath: path.join(task.dir, existing), bytes: 0 };
 
+  // Full-size first; if that variant does not exist for this image, fall back to the scraped URL.
+  const large = largerVariant(task.url);
+  if (large) {
+    const outcome = await fetchAndSave(large, task, hash);
+    if (outcome.ok) return outcome;
+  }
+  return fetchAndSave(task.url, task, hash);
+}
+
+async function fetchAndSave(url: string, task: Task, hash: string): Promise<Outcome> {
   let lastError = "unknown error";
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const proxy = nextProxy();
     try {
-      const res = await safeFetch(task.url, {
+      const res = await safeFetch(url, {
         proxyUrl: proxy?.url,
         signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
         headers: {

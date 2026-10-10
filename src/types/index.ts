@@ -21,6 +21,8 @@ export interface ImageRef {
   url: string;
   alt?: string;
   source: "src" | "data-src" | "srcset" | "og" | "json-ld" | "html";
+  /** Final public URL (S3) once the image is uploaded — exports prefer this over `url`. */
+  storageUrl?: string;
   /** Absolute path of the downloaded file, once the image has been saved to disk. */
   localPath?: string;
   /** Why the download failed, when it did. */

@@ -101,6 +101,9 @@ function isGenericPageTitle(title: string | undefined | null, url?: string): boo
   if (t.length < 3) return true;
 
   const genericPatterns = [
+    // Section headings of a storefront page, not products
+    "our company", "ratings & reviews", "ratings and reviews", "why us", "tell us what you need",
+    "products & services", "products and services", "testimonial",
     "about us", "contact us", "profile", "sitemap", "enquiry", "photos",
     "feedback", "home", "our products", "privacy policy", "terms of use",
     "manufacturer from", "trader from", "supplier from", "wholesaler from",
@@ -211,7 +214,8 @@ function extractDomProducts(rawHtml: string | undefined, pageUrl: string, source
     const linkHref = $card.find("a[href*='.html'], a.c3_nam").first().attr("href");
     const sourceUrl = linkHref ? new URL(linkHref, pageUrl).toString() : pageUrl;
 
-    const priceText = $card.find(".p_glp, .fnt12_p, .price, .prc, span:contains('₹'), span:contains('Rs')").text().trim();
+    // .first(): a card can match several price nodes, and .text() on all of them glues the prices together ("₹ 31,500₹ 54,500").
+    const priceText = $card.find(".p_glp, .fnt12_p, .price, .prc, span:contains('₹'), span:contains('Rs')").first().text().trim();
     const price = priceText ? parseMoney(priceText) : undefined;
     const unit = price?.unit ? price.unit.replace(/Get/i, "").trim() : undefined;
 

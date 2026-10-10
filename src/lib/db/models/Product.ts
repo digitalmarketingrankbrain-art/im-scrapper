@@ -10,6 +10,7 @@ const imageSchema = new Schema(
     url: { type: String, required: true },
     alt: String,
     source: { type: String, enum: ["src", "data-src", "srcset", "og", "json-ld", "html"], required: true },
+    storageUrl: String,
     localPath: String,
     downloadError: String,
   },

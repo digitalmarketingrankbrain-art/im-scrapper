@@ -37,6 +37,16 @@ export function RecentJobsList({ jobs, onSelect }: RecentJobsListProps) {
               <div className="min-w-0">
                 <p className="truncate text-slate-700 dark:text-slate-300">{job.sourceUrl}</p>
                 <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{formatTimestamp(job.createdAt)}</p>
+                {job.status === "running" && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1 w-32 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${job.progress ?? 0}%` }} />
+                    </div>
+                    <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                      {Math.round(job.progress ?? 0)}% · {job.productsProcessed ?? 0}/{job.productsFound ?? 0} products
+                    </span>
+                  </div>
+                )}
               </div>
               <StatusBadge status={job.status} />
             </button>

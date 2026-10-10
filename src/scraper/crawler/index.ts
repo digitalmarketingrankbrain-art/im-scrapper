@@ -50,6 +50,12 @@ const REQUEST_JITTER_MS = 150;
  */
 const RATE_LIMIT_COOLDOWN_MS = 8_000;
 const MAX_RATE_LIMIT_COOLDOWN_MS = 60_000;
+/**
+ * A retry round gives up after this many 429s in a row. The block is per-IP, so once the site has
+ * refused a few retries in a row the rest of the round will be refused too — and every extra
+ * refusal costs a full cooldown, which is what made retries take tens of minutes.
+ */
+const MAX_BLOCKED_IN_ROW = 2;
 
 function shortUrl(url: string): string {
   try {
@@ -258,7 +264,11 @@ export class CrawlSession {
    * site can't take parallel load). Pages that now succeed feed their links back into discovery.
    * Returns how many pages were recovered in this pass.
    */
+  /** True when the last retry round was abandoned because the site kept answering 429. */
+  lastRoundBlocked = false;
+
   async retryFailed(round: number): Promise<number> {
+    this.lastRoundBlocked = false;
     const targets = this.retryableFailedPages();
     if (targets.length === 0) return 0;
 
@@ -273,11 +283,21 @@ export class CrawlSession {
     });
 
     let recovered = 0;
-    for (const target of targets) {
+    let blockedInRow = 0;
+    for (const [index, target] of targets.entries()) {
+      if (blockedInRow >= MAX_BLOCKED_IN_ROW) {
+        this.lastRoundBlocked = true;
+        this.onActivity?.({
+          message: `Site is still rate limiting this IP — skipping the remaining ${targets.length - index} page${targets.length - index > 1 ? "s" : ""} instead of waiting on each one`,
+          level: "warn",
+        });
+        break;
+      }
       await this.waitOutCooldown(target.url);
       await sleep(REQUEST_SPACING_MS + Math.floor(Math.random() * REQUEST_JITTER_MS));
 
       const page = await this.fetchPage(target.url, target.depth);
+      blockedInRow = page.scrapeResult?.error?.type === "rate_limited" ? blockedInRow + 1 : 0;
       if (page.status === "success") {
         recovered++;
         this.recoveredUrls.add(target.url);
