@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import type { ImageRef, Product, ScrapeSource } from "@/types";
+import type { ImageRef, Money, Product, ScrapeSource } from "@/types";
 import { parseMoney } from "../normalize/price";
 import type { ParsedPage } from "../static/parseHtml";
 
@@ -19,7 +19,22 @@ interface JsonLdProduct {
   additionalProperty?: { name?: string; value?: string | number }[] | { name?: string; value?: string | number };
 }
 
-/** Collects ALL Products inside JSON-LD blocks (including array graphs). */
+/** Storefront sections that describe the seller, not a product — their headings ("Warehouse Facilities", "Testimonial") must never become products. */
+const STOREFRONT_SECTION_PAGES = ["testimonial", "aboutus", "videos", "photos", "enquiry", "contactus", "profile", "sitemap"];
+
+export function isStorefrontSectionPage(pageUrl: string): boolean {
+  try {
+    const u = new URL(pageUrl);
+    const segments = u.pathname.split("/").filter(Boolean);
+    // The store's home page (`/<store>/`) — unless it is a product view (`?pid=..&pn=..`), which is the same path.
+    if (segments.length === 1 && !/\.\w+$/.test(segments[0]) && !u.searchParams.has("pid") && !u.searchParams.has("pn")) return true;
+    const last = segments.pop() ?? "";
+    return STOREFRONT_SECTION_PAGES.includes(last.replace(/\.html?$/i, "").toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 /** One product never needs more than this many photos — listing pages drag in dozens from neighbouring cards. */
 export const MAX_IMAGES_PER_PRODUCT = 5;
 
@@ -125,6 +140,8 @@ interface IndiaMartProductItemData {
   BRD_MCAT_NAME?: string;
   PC_ITEM_MIN_ORDER_QUANTITY?: string;
   PC_ITEM_MOQ_UNIT_TYPE?: string;
+  PC_ITEM_STANDARD_PRICE_UNIT?: string;
+  FOB_PRICE_CURRENCY?: string;
   ISQ?: IndiaMartSpecRow[];
   IMAGE_500?: string;
   IMAGE_150?: string;
@@ -163,6 +180,14 @@ function minimumOrderQuantity(data: IndiaMartProductItemData): string | undefine
   if (!qty) return undefined;
   const unit = data.PC_ITEM_MOQ_UNIT_TYPE?.trim();
   return unit ? `${qty} ${unit}` : qty;
+}
+
+/** IndiaMart keeps price unit and currency in sibling fields; with no price unit set, the MOQ unit ("10 Piece") is what the price is quoted per. */
+function completePrice(price: Money | undefined, data: IndiaMartProductItemData | undefined): Money | undefined {
+  if (!price) return price;
+  const unit = price.unit || data?.PC_ITEM_STANDARD_PRICE_UNIT?.trim() || data?.PC_ITEM_MOQ_UNIT_TYPE?.trim() || null;
+  const currency = price.currency || data?.FOB_PRICE_CURRENCY?.trim() || (data && price.value !== null ? "INR" : null);
+  return { ...price, unit, currency };
 }
 
 function isGenericPageTitle(title: string | undefined | null, url?: string): boolean {
@@ -235,7 +260,10 @@ export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSo
   const category = item?.category ?? imData?.PARENT_MCAT?.GLCAT_MCAT_NAME ?? imData?.BRD_MCAT_NAME;
 
   const offer = Array.isArray(item?.offers) ? item.offers[0] : item?.offers;
-  const price = offer?.price !== undefined ? parseMoney(String(offer.price)) : (imData?.PRICE || imData?.PC_ITEM_FOB_PRICE ? parseMoney(imData.PRICE || imData.PC_ITEM_FOB_PRICE!) : undefined);
+  const price = completePrice(
+    offer?.price !== undefined ? parseMoney(String(offer.price)) : (imData?.PRICE || imData?.PC_ITEM_FOB_PRICE ? parseMoney(imData.PRICE || imData.PC_ITEM_FOB_PRICE!) : undefined),
+    imData,
+  );
 
   const rawImages = item?.image ? (Array.isArray(item.image) ? item.image : [item.image]) : [];
   if (imData?.IMAGE_500 || imData?.IMAGE_150 || imData?.PC_ITEM_IMG_PATH) {
@@ -391,6 +419,7 @@ function extractDomProducts(rawHtml: string | undefined, pageUrl: string, source
 
 /** Extracts ALL products found on a page (from JSON-LD array graph, IndiaMart SSR Data payload, DOM cards, etc.). */
 export function extractProducts(parsed: ParsedPage, pageUrl: string, source: ScrapeSource): Partial<Product>[] {
+  if (isStorefrontSectionPage(pageUrl)) return [];
   const productsMap = new Map<string, Partial<Product>>();
 
   // 1. Process DOM product cards (highest quality for IndiaMART storefront category pages)
@@ -460,7 +489,7 @@ export function extractProducts(parsed: ParsedPage, pageUrl: string, source: Scr
 
     const specs = specifications(imData.ISQ);
     const priceRaw = imData.PRICE || imData.PC_ITEM_FOB_PRICE;
-    const price = priceRaw ? parseMoney(priceRaw) : existing.price;
+    const price = completePrice(priceRaw ? parseMoney(priceRaw) : existing.price, imData);
     const category = imData.PARENT_MCAT?.GLCAT_MCAT_NAME || imData.BRD_MCAT_NAME || existing.category;
     const moq = minimumOrderQuantity(imData) || existing.minimumOrderQuantity;
 

@@ -40,8 +40,8 @@ export interface CrawlSummary {
 }
 
 /** Politeness delay between requests from a single worker — don't hammer the target site. */
-const REQUEST_SPACING_MS = 250;
-const REQUEST_JITTER_MS = 150;
+const REQUEST_SPACING_MS = 50;
+const REQUEST_JITTER_MS = 50;
 
 /**
  * Base pause every worker takes once the target starts returning 429s. It doubles for each

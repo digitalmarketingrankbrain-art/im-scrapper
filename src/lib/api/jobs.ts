@@ -24,7 +24,7 @@ export async function fetchJobResults(jobId: string): Promise<JobResultsView> {
   return (await parseJsonOrThrow(res)) as JobResultsView;
 }
 
-export async function createJob(params: string | { sourceUrl: string; concurrency?: number }): Promise<{ jobId: string; status: string }> {
+export async function createJob(params: string | { sourceUrl: string }): Promise<{ jobId: string; status: string }> {
   const payload = typeof params === "string" ? { sourceUrl: params } : params;
   const res = await fetch("/api/jobs", {
     method: "POST",

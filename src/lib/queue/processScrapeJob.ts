@@ -7,8 +7,9 @@ import { SellerModel } from "@/lib/db/models/Seller";
 import { upsertProduct, upsertSeller } from "@/lib/db/repositories";
 import { logEvent } from "@/lib/logger";
 import { CrawlSession, type CrawlActivity, type CrawlResultPage } from "@/scraper/crawler";
+import { isProductDetailPage, mergeDetailIntoCard, productKeyUrl } from "@/scraper/extract/mergeDetail";
 import { extractProducts } from "@/scraper/extract/product";
-import { extractSeller } from "@/scraper/extract/seller";
+import { extractFactsheet, extractSeller, extractYearOfEst, type Factsheet } from "@/scraper/extract/seller";
 import type { Product, ScrapePhase, ScrapeSource } from "@/types";
 
 function sourceFromUrl(url: string): ScrapeSource {
@@ -85,6 +86,8 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
   /** Every distinct product found so far, keyed by the same trimmed name the database upserts on. */
   const found = new Map<string, Partial<Product>>();
   const saved = new Set<string>();
+  /** Names whose record came from a product detail page (no listing card was found for them). */
+  const fromDetailPage = new Set<string>();
 
   const MAX_ACTIVITY_ENTRIES = 40;
   /** Records what the worker is doing. Transient notes only replace the "now" line; others also join the history. */
@@ -124,37 +127,102 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
     await session.discover();
 
     /** Pulls products from every fetched page that has not been collected yet. */
+    /** Seller name from the first loaded page, used to tell a real category from a page heading that is just the seller. */
+    let sellerNameCache: string | undefined;
+    const sellerName = () => {
+      if (sellerNameCache) return sellerNameCache;
+      const page = session.pages.get(session.startUrl)?.scrapeResult?.data ? session.pages.get(session.startUrl)! : session.successfulPages()[0];
+      const data = page?.scrapeResult?.data;
+      if (data) sellerNameCache = extractSeller(data, page.url, source).name;
+      return sellerNameCache;
+    };
+
     const collectProducts = (pages: CrawlResultPage[]) => {
-      for (const page of pages) {
+      // Listing cards first, product detail pages last: a detail page then enriches its card instead of becoming a second record.
+      const ordered = [...pages].sort((a, b) => Number(isProductDetailPage(a.url)) - Number(isProductDetailPage(b.url)));
+      for (const page of ordered) {
         const parsed = page.scrapeResult?.data;
         if (!parsed) continue;
+        const detailPage = isProductDetailPage(page.url);
         for (const prod of extractProducts(parsed, page.url, source)) {
           const name = prod.name?.trim();
-          if (!name || name === "Unknown product" || found.has(name)) continue;
-          found.set(name, { ...prod, name, sourceUrl: prod.sourceUrl || page.url });
+          if (!name || name === "Unknown product") continue;
+          const candidate = { ...prod, name, sourceUrl: prod.sourceUrl || page.url };
+
+          if (detailPage) {
+            const key = productKeyUrl(candidate.sourceUrl);
+            const cardName = [...found.keys()].find((n) => !fromDetailPage.has(n) && productKeyUrl(found.get(n)!.sourceUrl) === key);
+            if (cardName) {
+              found.set(cardName, mergeDetailIntoCard(found.get(cardName)!, candidate, sellerName()));
+              saved.delete(cardName); // re-save with the richer data
+              continue;
+            }
+          }
+          if (found.has(name)) continue;
+          if (!detailPage) {
+            // The detail page can be fetched before its listing card (retried pages arrive late) — fold it into the card now.
+            const key = productKeyUrl(candidate.sourceUrl);
+            const detailName = [...fromDetailPage].find((n) => productKeyUrl(found.get(n)?.sourceUrl) === key);
+            if (detailName) {
+              const detail = found.get(detailName)!;
+              found.delete(detailName);
+              fromDetailPage.delete(detailName);
+              found.set(name, mergeDetailIntoCard(candidate, detail, sellerName()));
+              continue;
+            }
+          }
+          found.set(name, candidate);
+          if (detailPage) fromDetailPage.add(name);
         }
       }
     };
 
     /** The seller comes from the first page that loaded — normally the start URL, but that page itself can be the one that got rate-limited. */
-    const ensureSeller = async () => {
-      if (sellerId) return;
+    const ensureSeller = async (refresh = false) => {
+      if (sellerId && !refresh) return;
       const firstOk = session.pages.get(session.startUrl) ?? session.successfulPages()[0];
       const candidate = firstOk?.status === "success" ? firstOk : session.successfulPages()[0];
       if (!candidate?.scrapeResult?.data) return;
       const sellerData = extractSeller(candidate.scrapeResult.data, candidate.url, source);
-      const seller = await upsertSeller({ ...sellerData, sourceUrl });
+      // Pages that were rate-limited and recovered arrive late, so the first page can lack the logo / phone: fill gaps from the other store pages.
+      const fillable = ["logoUrl", "gstNumber", "yearOfEst", "address", "website", "businessType"] as const;
+      const phones = new Set(sellerData.phone ?? []);
+      for (const page of session.successfulPages()) {
+        const data = page.scrapeResult?.data;
+        if (!data || page === candidate || isProductDetailPage(page.url)) continue;
+        if (fillable.every((k) => sellerData[k]) && phones.size > 0) break;
+        const other = extractSeller(data, page.url, source);
+        for (const key of fillable) if (!sellerData[key] && other[key]) Object.assign(sellerData, { [key]: other[key] });
+        other.phone?.forEach((ph) => phones.add(ph));
+      }
+      sellerData.phone = [...phones];
+      // Legal status / employees / turnover / founding year live in the About Us factsheet, not on the start page.
+      const factsheet: Factsheet = {};
+      for (const page of session.successfulPages()) {
+        // About Us redirects to profile.html on some stores, so go by the page content, not its URL.
+        const rawHtml = page.scrapeResult?.data?.rawHtml;
+        if (!rawHtml?.includes("factsheet-table__row")) continue;
+        for (const [key, value] of Object.entries(extractFactsheet(rawHtml))) {
+          if (value && !(key in factsheet)) factsheet[key as keyof Factsheet] = value;
+        }
+        // Sellers who skip the factsheet's year row often still write "Established in 2015" in their About text.
+        const year = extractYearOfEst(rawHtml);
+        if (year && !factsheet.yearOfEst) factsheet.yearOfEst = year;
+      }
+      const seller = await upsertSeller({ ...sellerData, ...factsheet, sourceUrl });
       sellerId = String(seller._id);
       job.sellerId = seller._id;
     };
 
     /** Saves every collected product not yet saved. Returns how many were saved this call. */
-    const persistPending = async (phase: Exclude<ScrapePhase, "done">): Promise<number> => {
+    const persistPending = async (phase: Exclude<ScrapePhase, "done">, includeDetailOnly = false): Promise<number> => {
       await ensureSeller();
       if (!sellerId) return 0;
       let count = 0;
       for (const [name, prod] of found) {
         if (saved.has(name)) continue;
+        // Detail-page-only records wait until retries are done: a listing card that turns up late would replace them.
+        if (!includeDetailOnly && fromDetailPage.has(name)) continue;
         try {
           await upsertProduct(sellerId, prod);
           saved.add(name);
@@ -237,6 +305,8 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
       }
     }
 
+    await ensureSeller(true); // every retry round is over: re-read the seller from all pages that finally loaded
+    await persistPending("verifying", true);
     await note({ message: "Step 3/4 · Cross-checking found products against the database", level: "info" });
     // Reconcile: trust the database, not our own bookkeeping, for what actually got saved.
     await setPhase("verifying");
@@ -251,7 +321,7 @@ export async function processScrapeJob(jobId: string, sourceUrl: string, concurr
         for (const name of inDb) saved.add(name);
       }
       if (saved.size >= found.size) break;
-      await persistPending("verifying");
+      await persistPending("verifying", true);
     }
 
     // ---- 4. downloading images ------------------------------------------

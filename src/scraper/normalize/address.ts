@@ -4,6 +4,7 @@ interface JsonLdAddress {
   streetAddress?: string;
   addressLocality?: string;
   addressRegion?: string;
+  postalCode?: string;
   addressCountry?: string | { name?: string };
 }
 
@@ -13,8 +14,8 @@ export function addressFromJsonLd(value: unknown): Address | undefined {
   const addr = value as JsonLdAddress;
 
   const country = typeof addr.addressCountry === "string" ? addr.addressCountry : addr.addressCountry?.name;
-  const raw = [addr.streetAddress, addr.addressLocality, addr.addressRegion, country].filter(Boolean).join(", ");
+  const raw = [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode, country].filter(Boolean).join(", ");
   if (!raw) return undefined;
 
-  return { raw, city: addr.addressLocality, state: addr.addressRegion, country };
+  return { raw, street: addr.streetAddress, city: addr.addressLocality, state: addr.addressRegion, postalCode: addr.postalCode, country };
 }

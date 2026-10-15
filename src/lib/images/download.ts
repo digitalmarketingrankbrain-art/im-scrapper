@@ -15,7 +15,7 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_TIMEOUT_MS = 20_000;
 const ATTEMPTS = 3;
 /** The image CDN is a different host from the storefront, so it tolerates more parallelism than page crawling. */
-const DEFAULT_CONCURRENCY = 6;
+const DEFAULT_CONCURRENCY = 30;
 
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",

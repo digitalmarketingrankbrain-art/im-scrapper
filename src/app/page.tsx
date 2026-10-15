@@ -56,9 +56,9 @@ export default function Home() {
   const { data: results } = useJobResults(selectedJobId, job?.status);
   const createJobMutation = useCreateJob();
 
-  function handleSubmit(sourceUrl: string, concurrency?: number) {
+  function handleSubmit(sourceUrl: string) {
     setClearNotice(null);
-    createJobMutation.mutate({ sourceUrl, concurrency }, {
+    createJobMutation.mutate({ sourceUrl }, {
       onSuccess: (data) => {
         dispatch(selectJob(data.jobId));
       },

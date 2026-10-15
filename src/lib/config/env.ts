@@ -5,7 +5,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
   // Crawl-wide limits — enforced starting Phase 4, safe defaults defined now
-  MAX_CRAWL_DEPTH: z.coerce.number().int().positive().default(3),
+  MAX_CRAWL_DEPTH: z.coerce.number().int().positive().default(30),
   MAX_PAGES: z.coerce.number().int().positive().default(1000),
   MAX_PRODUCTS: z.coerce.number().int().positive().default(2000),
   // Kept low by default — sites like IndiaMart start returning 429s well before 6 parallel

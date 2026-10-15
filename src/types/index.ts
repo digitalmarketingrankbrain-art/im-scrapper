@@ -42,6 +42,10 @@ export interface Seller {
   categories?: string[];
   gstNumber?: string;
   yearOfEst?: string;
+  legalStatus?: string;
+  numberOfEmployees?: string;
+  annualTurnover?: string;
+  logoUrl?: string;
   trustSeal?: boolean;
   metadata?: Record<string, unknown>;
   scrapedAt: Date;

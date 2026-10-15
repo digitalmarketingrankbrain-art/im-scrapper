@@ -58,6 +58,13 @@ describe("EB2BMART export format", () => {
     });
   });
 
+  it("falls back to the order unit for priceUnit and to subCategory for sub_category", () => {
+    const rec = buildEb2bmartRecord({ name: "X", price: { value: 5, currency: "INR", unit: null }, minimumOrderQuantity: "10 Piece", subCategory: "Lead Acid" }, null);
+    expect(rec.priceUnit).toBe("Piece");
+    expect(rec.sub_category).toBe("Lead Acid");
+    expect(buildEb2bmartRecord({ name: "X", price: { value: 5, unit: "Kg" } }, null).priceUnit).toBe("Kg");
+  });
+
   it("resolves protocol-relative image URLs and drops site-chrome assets", () => {
     expect(buildEb2bmartRecord(product, seller).images).toEqual(["https://5.imimg.com/data5/a/b/x.jpg"]);
   });

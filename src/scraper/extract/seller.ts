@@ -1,6 +1,7 @@
+import * as cheerio from "cheerio";
 import type { ScrapeSource, Seller } from "@/types";
 import { addressFromJsonLd } from "../normalize/address";
-import { extractEmails } from "../normalize/contact";
+import { extractEmails, extractPhones } from "../normalize/contact";
 import type { ParsedPage } from "../static/parseHtml";
 
 interface JsonLdOrganization {
@@ -11,6 +12,7 @@ interface JsonLdOrganization {
   email?: string;
   address?: unknown;
   url?: string;
+  logo?: string | { url?: string };
 }
 
 function findOrganization(jsonLd: unknown[]): JsonLdOrganization | undefined {
@@ -102,9 +104,88 @@ function extractGstNumber(text: string, html?: string): string | undefined {
 }
 
 /** Extracts Year of Establishment if present */
-function extractYearOfEst(text: string): string | undefined {
+export function extractYearOfEst(text: string): string | undefined {
+  // Raw HTML puts tags / &nbsp; inside the phrase ("Established in<b>&nbsp;2015").
+  text = text.replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/\s+/g, " ");
   const match = text.match(/(?:Year of Establishment|Established in|Estd\.?|Estd|Est\.?)\s*:?\s*(19\d\d|20\d\d)/i);
   return match ? match[1] : undefined;
+}
+
+export interface Factsheet {
+  gstNumber?: string;
+  legalStatus?: string;
+  numberOfEmployees?: string;
+  annualTurnover?: string;
+  yearOfEst?: string;
+}
+
+const FACTSHEET_FIELDS: [keyof Factsheet, RegExp][] = [
+  ["gstNumber", /^(gst( no\.?| number)?|gstin)$/i],
+  ["legalStatus", /^legal status( of firm)?$/i],
+  ["numberOfEmployees", /^(number of employees|no\.? of employees|total number of employees)$/i],
+  ["annualTurnover", /^(annual turnover|turnover|annual turn over)$/i],
+  ["yearOfEst", /^(year of establishment|establishment year|established in)$/i],
+];
+
+/** Reads the About Us "Factsheet" label/value rows (`<dt class="factsheet-table__label">` + `<dd>`); sellers only list the fields they filled in. */
+export function extractFactsheet(rawHtml: string | undefined): Factsheet {
+  if (!rawHtml) return {};
+  const $ = cheerio.load(rawHtml);
+  const out: Factsheet = {};
+  $(".factsheet-table__row").each((_, row) => {
+    const label = $(row).find(".factsheet-table__label").first().text().replace(/\s+/g, " ").trim();
+    const value = $(row).find(".factsheet-table__value").first().text().replace(/\s+/g, " ").trim();
+    if (!label || !value || /^(na|n\/a|-)$/i.test(value)) return;
+    for (const [key, re] of FACTSHEET_FIELDS) {
+      if (re.test(label) && !out[key]) out[key] = key === "yearOfEst" ? value.match(/(19|20)\d\d/)?.[0] : value;
+    }
+  });
+  return out;
+}
+
+/** Phones from JSON-LD, `tel:` links and "Mobile / Phone / Call" labelled text. Bare 10-digit runs are not trusted: product ids look the same. */
+function extractSellerPhones(org: JsonLdOrganization | undefined, rawHtml: string | undefined): string[] {
+  const found = new Set<string>();
+  if (org?.telephone) extractPhones(org.telephone).forEach((p) => found.add(p));
+  if (rawHtml) {
+    // IndiaMART ships the seller's public contact number in the page's embedded data ("Call Now" button).
+    for (const m of rawHtml.matchAll(/"pnsNumber"\s*:\s*"([^"]+)"/g)) extractPhones(m[1]).forEach((p) => found.add(p));
+    const $ = cheerio.load(rawHtml);
+    $('a[href^="tel:"]').each((_, a) => {
+      extractPhones(decodeURIComponent($(a).attr("href")!.slice(4))).forEach((p) => found.add(p));
+    });
+    const text = $.root().text().replace(/\s+/g, " ");
+    for (const m of text.matchAll(/(?:mobile|phone|call|contact)\s*(?:no\.?|number)?\s*[:\-]?\s*((?:\+91[-\s]?)?[6-9]\d{9})\b/gi)) {
+      extractPhones(m[1]).forEach((p) => found.add(p));
+    }
+  }
+  return [...found];
+}
+
+/** Company logo: JSON-LD `logo`, else an `<img>` whose class/alt says logo — never IndiaMART's own site chrome or icon sprites. */
+function extractLogoUrl(org: JsonLdOrganization | undefined, rawHtml: string | undefined, pageUrl: string): string | undefined {
+  const resolve = (raw: string | undefined) => {
+    if (!raw) return undefined;
+    try {
+      const url = new URL(raw.trim(), pageUrl).toString();
+      return /imlogo|bl_mail_logo|sprite|\.svg(\?|#|$)|\/dist\/|\/template-mdc\//i.test(url) ? undefined : url;
+    } catch {
+      return undefined;
+    }
+  };
+  const fromLd = resolve(typeof org?.logo === "string" ? org.logo : org?.logo?.url);
+  if (fromLd) return fromLd;
+  if (!rawHtml) return undefined;
+  const fromData = resolve(rawHtml.match(/"companyLogo"\s*:\s*"([^"]+)"/)?.[1]?.replace(/\\\//g, "/"));
+  if (fromData) return fromData;
+  const $ = cheerio.load(rawHtml);
+  for (const img of $("img").toArray()) {
+    const hint = `${$(img).attr("class") ?? ""} ${$(img).attr("alt") ?? ""} ${$(img).attr("id") ?? ""}`;
+    if (!/logo/i.test(hint) || /im-header-brand-logo|im logo|indiamart/i.test(hint)) continue;
+    const url = resolve($(img).attr("data-src") ?? $(img).attr("src"));
+    if (url) return url;
+  }
+  return undefined;
 }
 
 /** Checks for TrustSEAL verification signal */
@@ -121,7 +202,7 @@ export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSou
   const name = extractSellerName(org?.name, parsed.metaTags["og:site_name"], parsed.title, parsed.rawHtml);
   const description = org?.description ?? parsed.metaTags["description"];
 
-  const phones: string[] = [];
+  const phones = extractSellerPhones(org, parsed.rawHtml);
 
   const emails = new Set<string>();
 
@@ -185,6 +266,7 @@ export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSou
     email: [...emails],
     address,
     website: org?.url,
+    logoUrl: extractLogoUrl(org, parsed.rawHtml, url),
     gstNumber: extractGstNumber(parsed.textSample, parsed.rawHtml),
     yearOfEst: extractYearOfEst(parsed.textSample + " " + (parsed.rawHtml ?? "")),
     trustSeal: checkTrustSeal(parsed, url),

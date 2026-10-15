@@ -184,6 +184,8 @@ function imageUrls(product: Loose): string[] {
 /** IndiaMart's category/sub-category map to the platform's sub_category/product_type; they need the platform's own taxonomy mapping later. */
 export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bmartRecord {
   const price = product.price as { value?: number | null; currency?: string | null; unit?: string | null } | undefined;
+  // No explicit price unit: the price is quoted per the order unit ("10 Piece" -> "Piece").
+  const priceUnit = str(price?.unit) || str(product.minimumOrderQuantity).replace(/^\s*[\d.,]+\s*/, "").trim();
   const address = (seller?.address as Loose | undefined) ?? {};
   const phones = seller?.phone;
   const yearRaw = Number(seller?.yearOfEst);
@@ -227,8 +229,8 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
   return {
     product_name: decodeEntities(str(product.name)),
     price: { amount: price?.value ?? null, currency: price?.currency || "INR" },
-    priceUnit: str(price?.unit),
-    sub_category: category,
+    priceUnit,
+    sub_category: category || subCategory,
     product_type: subCategory || category,
     seller: {
       name: decodeEntities(str(seller?.name)),
@@ -236,15 +238,15 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
       state: str(address.state),
       country: str(address.country) || "India",
       contact_details: Array.isArray(phones) ? phones.join(", ") : str(phones),
-      logo_url: "",
+      logo_url: str(seller?.logoUrl),
     },
     company: {
       gst_number: str(seller?.gstNumber),
       business_type: str(seller?.businessType),
       years_established: Number.isFinite(yearRaw) && yearRaw > 0 ? yearRaw : null,
-      number_of_employees: "",
-      turnover: "",
-      legal_status: "",
+      number_of_employees: str(seller?.numberOfEmployees),
+      turnover: str(seller?.annualTurnover),
+      legal_status: str(seller?.legalStatus),
     },
     images: imageUrls(product),
     specifications,

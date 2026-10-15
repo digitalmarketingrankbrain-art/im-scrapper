@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseHtml } from "../static/parseHtml";
-import { extractSeller } from "./seller";
+import { extractFactsheet, extractSeller } from "./seller";
 import { extractProduct } from "./product";
 
 describe("Seller & Product Data Extraction", () => {
@@ -42,16 +42,35 @@ describe("Seller & Product Data Extraction", () => {
 
       expect(seller.name).toBe("Acme Industrial Pvt Ltd");
       expect(seller.description).toBe("Leading manufacturer of industrial tools and machinery");
-      expect(seller.phone).toEqual([]);
+      expect(seller.phone).toEqual(["9876543210"]);
       expect(seller.email).toContain("sales@acmeind.com");
       expect(seller.email).toContain("info@acmeind.com");
       expect(seller.website).toBe("https://www.acmeind.com");
       expect(seller.address).toEqual({
-        raw: "Plot No 42, GIDC Industrial Area, Ahmedabad, Gujarat, India",
+        raw: "Plot No 42, GIDC Industrial Area, Ahmedabad, Gujarat, 380015, India",
+        street: "Plot No 42, GIDC Industrial Area",
         city: "Ahmedabad",
         state: "Gujarat",
+        postalCode: "380015",
         country: "India",
       });
+    });
+
+    it("extracts logo and tel: phones, ignores IndiaMART's own logo and bare 10-digit ids", () => {
+      const html = `<html><head><title>X</title></head><body>
+        <img alt="im Logo" src="https://hm.imimg.com/template-mdc/imLogo1.png">
+        <img class="company-logo" src="//5.imimg.com/data5/SELLER/Default/logo.png">
+        <a href="tel:+91-9812345678">Call</a>
+        <span>Product id 7123456789</span></body></html>`;
+      const seller = extractSeller(parseHtml(html, "https://www.indiamart.com/x/"), "https://www.indiamart.com/x/", "indiamart");
+      expect(seller.logoUrl).toBe("https://5.imimg.com/data5/SELLER/Default/logo.png");
+      expect(seller.phone).toEqual(["9812345678"]);
+    });
+
+    it("reads GST No. from the About Us factsheet", () => {
+      const html = `<div class="factsheet-table__row"><dt class="factsheet-table__label">GST No.</dt><dd class="factsheet-table__value">37HXXPP0646E1ZU</dd></div>
+        <div class="factsheet-table__row"><dt class="factsheet-table__label">Legal Status of Firm</dt><dd class="factsheet-table__value">Proprietorship</dd></div>`;
+      expect(extractFactsheet(html)).toEqual({ gstNumber: "37HXXPP0646E1ZU", legalStatus: "Proprietorship" });
     });
 
     it("should fallback to meta tags and title when JSON-LD is missing", () => {
