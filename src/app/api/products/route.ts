@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       name: product.name,
       category: product.category,
       subCategory: product.subCategory,
+      productType: product.productType,
       brand: product.brand,
       price: product.price,
       minimumOrderQuantity: product.minimumOrderQuantity,

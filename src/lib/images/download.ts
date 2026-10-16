@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ProductModel } from "@/lib/db/models/Product";
 import { logEvent } from "@/lib/logger";
@@ -8,6 +8,8 @@ import { safeFetch } from "@/scraper/security/safeFetch";
 import { limitImages } from "@/scraper/extract/product";
 import type { ImageRef } from "@/types";
 import { sellerImageDir, slugify } from "./paths";
+import { s3Enabled, uploadImageToS3 } from "./s3";
+import { env } from "@/lib/config/env";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -54,7 +56,7 @@ interface Task {
   prefix: string;
 }
 
-type Outcome = { ok: true; localPath: string; bytes: number } | { ok: false; error: string };
+type Outcome = { ok: true; localPath: string; bytes: number; storageUrl?: string } | { ok: false; error: string };
 
 /** Image URLs on storefront pages are often protocol-relative (`//5.imimg.com/...`) or relative — resolve them against the page they came from. */
 function resolveImageUrl(raw: string, base: string): string | null {
@@ -80,7 +82,23 @@ function largerVariant(url: string): string | null {
   return large === url ? null : large;
 }
 
+/** Saves locally, then mirrors the file to S3 when configured. An S3 failure counts as a failed image (the local copy stays, so a re-run only retries the upload). */
 async function downloadOne(task: Task): Promise<Outcome> {
+  const outcome = await downloadToDisk(task);
+  if (!outcome.ok || !s3Enabled()) return outcome;
+  try {
+    const file = path.basename(outcome.localPath);
+    const ext = file.split(".").pop() ?? "jpg";
+    const contentType = Object.entries(EXTENSIONS).find(([, e]) => e === ext)?.[0] ?? "application/octet-stream";
+    const storageUrl = await uploadImageToS3(`${env.S3_IMAGE_PREFIX}/${task.productId}/${file}`, await readFile(outcome.localPath), contentType);
+    return { ...outcome, storageUrl };
+  } catch (error) {
+    logEvent({ event: "S3_UPLOAD_FAILED", url: task.url, error: String(error) });
+    return { ok: false, error: `S3 upload failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+async function downloadToDisk(task: Task): Promise<Outcome> {
   // The hash is of the URL as scraped, so re-runs find the file no matter which size variant was saved.
   const hash = createHash("sha1").update(task.url).digest("hex").slice(0, 8);
 
@@ -244,7 +262,7 @@ export async function downloadProductImages(params: {
     const images = imagesByProduct.get(task.productId);
     if (!images || !outcome) continue;
     images[task.imageIndex] = outcome.ok
-      ? { ...images[task.imageIndex], localPath: outcome.localPath, downloadError: undefined }
+      ? { ...images[task.imageIndex], localPath: outcome.localPath, storageUrl: outcome.storageUrl, downloadError: undefined }
       : { ...images[task.imageIndex], downloadError: outcome.error };
   }
   for (const [productId, images] of imagesByProduct) {

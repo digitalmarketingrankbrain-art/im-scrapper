@@ -14,7 +14,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const seller = job.sellerId ? await SellerModel.findById(job.sellerId) : null;
-  const products = job.sellerId ? await ProductModel.find({ sellerId: job.sellerId }) : [];
+  // Products this job saved — a listing job spans many sellers. Jobs from before `jobId` existed fall back to their seller.
+  let products = await ProductModel.find({ jobId: job._id });
+  if (products.length === 0 && job.sellerId) products = await ProductModel.find({ sellerId: job.sellerId });
 
   return NextResponse.json({ job, seller, products });
 }

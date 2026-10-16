@@ -4,6 +4,7 @@ export interface ScrapeJobView {
   _id: string;
   sourceUrl: string;
   status: JobStatus;
+  mode?: "product" | "catalog" | "listing";
   phase?: "discovering" | "scraping" | "verifying" | "downloading" | "done";
   progress: number;
   pagesDiscovered: number;
@@ -14,6 +15,8 @@ export interface ScrapeJobView {
   productsFound: number;
   productsProcessed: number;
   productsMissing?: number;
+  productsSkipped?: number;
+  productsFailed?: number;
   imagesTotal?: number;
   imagesDownloaded?: number;
   imagesFailed?: number;
@@ -31,13 +34,16 @@ export interface SellerView {
   name: string;
   description?: string;
   businessType?: string;
-  phone?: string[];
-  email?: string[];
   website?: string;
   address?: { raw?: string; street?: string; city?: string; state?: string; postalCode?: string; country?: string };
   categories?: string[];
   gstNumber?: string;
   yearOfEst?: string;
+  legalStatus?: string;
+  numberOfEmployees?: string;
+  annualTurnover?: string;
+  /** Extra non-contact facts from the seller block (member since, rating, GST registration...). */
+  metadata?: Record<string, unknown>;
   trustSeal?: boolean;
   sourceUrl?: string;
 }
@@ -78,8 +84,6 @@ export interface SellerListItem {
   businessType?: string;
   address?: { raw?: string; city?: string; state?: string; country?: string };
   website?: string;
-  phone?: string[];
-  email?: string[];
   categories?: string[];
   productCount: number;
   sourceUrl: string;
@@ -91,6 +95,7 @@ export interface ProductListItem {
   name: string;
   category?: string;
   subCategory?: string;
+  productType?: string;
   brand?: string;
   price?: { raw: string };
   minimumOrderQuantity?: string;

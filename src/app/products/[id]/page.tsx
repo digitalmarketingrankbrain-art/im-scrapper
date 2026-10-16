@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ChevronLeftIcon, ExternalLinkIcon, InboxIcon, MailIcon, MapPinIcon, PhoneIcon } from "@/components/icons";
+import { ChevronLeftIcon, ExternalLinkIcon, InboxIcon, MapPinIcon } from "@/components/icons";
 import { useProduct } from "@/hooks/useProducts";
 
 export default function ProductDetailPage() {
@@ -103,18 +103,6 @@ export default function ProductDetailPage() {
                   <p className="flex items-start gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                     <MapPinIcon width="14" height="14" className="mt-0.5 shrink-0" />
                     {product.seller.address.raw}
-                  </p>
-                )}
-                {product.seller.phone && product.seller.phone.length > 0 && (
-                  <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <PhoneIcon width="14" height="14" className="shrink-0" />
-                    {product.seller.phone[0]}
-                  </p>
-                )}
-                {product.seller.email && product.seller.email.length > 0 && (
-                  <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <MailIcon width="14" height="14" className="shrink-0" />
-                    {product.seller.email[0]}
                   </p>
                 )}
                 <p className="text-xs text-slate-400 dark:text-slate-500">{product.seller.productCount} products from this seller</p>

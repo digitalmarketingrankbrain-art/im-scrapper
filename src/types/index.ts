@@ -35,8 +35,7 @@ export interface Seller {
   name: string;
   description?: string;
   businessType?: string;
-  phone?: string[];
-  email?: string[];
+  /** Seller contact details (phone, email, owner name) are deliberately never collected or stored. */
   address?: Address;
   website?: string;
   categories?: string[];
@@ -52,14 +51,26 @@ export interface Seller {
   updatedAt: Date;
 }
 
+export type ScrapeJobMode = "product" | "catalog" | "listing";
+
+/** Why a product page was not saved: it is a deliberate skip, not an error. */
+export type SkipReason = "too_few_specs" | "not_a_product_page";
+
 export interface Product {
   sellerId: string;
+  /** Stable identity across scraping modes (IndiaMart's numeric product id, else the URL) — the duplicate check. */
+  productKey?: string;
+  /** The job that last saved this product. */
+  jobId?: string;
   source: ScrapeSource;
   sourceUrl: string;
   name: string;
   description?: string;
   category?: string;
+  /** Breadcrumb position 2 (the 2nd crumb). */
   subCategory?: string;
+  /** Breadcrumb position 3 (the 3rd crumb). */
+  productType?: string;
   price?: Money;
   minimumOrderQuantity?: string;
   specifications?: Record<string, string>;
@@ -103,6 +114,7 @@ export type ScrapePhase = "discovering" | "scraping" | "verifying" | "downloadin
 
 export interface ScrapeJob {
   sourceUrl: string;
+  mode?: ScrapeJobMode;
   sellerId?: string;
   status: ScrapeJobStatus;
   phase?: ScrapePhase;
@@ -120,6 +132,10 @@ export interface ScrapeJob {
   productsProcessed: number;
   /** Products found on a page but not saved to the database after verification. */
   productsMissing?: number;
+  /** Products deliberately not saved (fewer than the minimum number of specifications). */
+  productsSkipped?: number;
+  /** Products whose page could not be scraped; the rest of the batch carried on. */
+  productsFailed?: number;
   imagesTotal?: number;
   imagesDownloaded?: number;
   imagesFailed?: number;

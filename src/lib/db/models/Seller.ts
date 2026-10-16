@@ -12,8 +12,6 @@ const sellerSchema = new Schema(
     name: { type: String, required: true },
     description: String,
     businessType: String,
-    phone: [String],
-    email: [String],
     address: addressSchema,
     website: String,
     categories: [String],

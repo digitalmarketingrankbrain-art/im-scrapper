@@ -1,6 +1,7 @@
 "use client";
 
 import { StatusBadge } from "@/components/StatusBadge";
+import { productsHandled } from "@/lib/progress";
 import type { ScrapeJobView } from "@/types/dashboard";
 
 interface RecentJobsListProps {
@@ -43,7 +44,7 @@ export function RecentJobsList({ jobs, onSelect }: RecentJobsListProps) {
                       <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${job.progress ?? 0}%` }} />
                     </div>
                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                      {Math.round(job.progress ?? 0)}% · {job.productsProcessed ?? 0}/{job.productsFound ?? 0} products
+                      {Math.round(job.progress ?? 0)}% · {productsHandled(job)}/{job.productsFound ?? 0} products
                     </span>
                   </div>
                 )}

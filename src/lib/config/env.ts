@@ -24,6 +24,13 @@ const envSchema = z.object({
 
   // Background jobs — used starting Phase 7, unset until Redis is added
   REDIS_URL: z.string().optional(),
+
+  // S3 image storage — optional; with no bucket/keys, images stay on local disk only.
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_REGION: z.string().default("ap-south-1"),
+  AWS_S3_BUCKET: z.string().optional(),
+  S3_IMAGE_PREFIX: z.string().default("images"),
 });
 
 const parsed = envSchema.safeParse(process.env);

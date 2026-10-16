@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { JobProgressCard } from "@/components/JobProgressCard";
 import { LiveProgressPanel } from "@/components/LiveProgressPanel";
 import { RecentJobsList } from "@/components/RecentJobsList";
-import { ScrapeForm } from "@/components/ScrapeForm";
+import { ScrapeForm, type ScrapeModeChoice } from "@/components/ScrapeForm";
 import { TrashIcon, CheckCircleIcon, SpinnerIcon } from "@/components/icons";
 import { useCreateJob } from "@/hooks/useCreateJob";
 import { useJob } from "@/hooks/useJob";
@@ -56,9 +56,9 @@ export default function Home() {
   const { data: results } = useJobResults(selectedJobId, job?.status);
   const createJobMutation = useCreateJob();
 
-  function handleSubmit(sourceUrl: string) {
+  function handleSubmit(sourceUrl: string, mode: ScrapeModeChoice) {
     setClearNotice(null);
-    createJobMutation.mutate({ sourceUrl }, {
+    createJobMutation.mutate({ sourceUrl, mode }, {
       onSuccess: (data) => {
         dispatch(selectJob(data.jobId));
       },

@@ -7,6 +7,7 @@
  * fields with no source are emitted as empty strings / null, as Aajjo does for its own gaps.
  */
 
+import { s3Enabled } from "@/lib/images/s3";
 import { buildXlsx } from "./xlsx";
 
 export interface Eb2bmartRecord {
@@ -174,8 +175,8 @@ function imageUrls(product: Loose): string[] {
   const base = str(product.sourceUrl) || "https://www.indiamart.com/";
   const urls: string[] = [];
   for (const img of images) {
-    // storageUrl is where the S3 upload step will put the final bucket URL; until then the source URL is used.
-    const url = img.storageUrl || (img.url ? absoluteUrl(img.url, base) : "");
+    // With S3 configured only bucket URLs are exported — an image not uploaded yet is left out, never swapped for the IndiaMart URL.
+    const url = s3Enabled() ? (img.storageUrl ?? "") : img.storageUrl || (img.url ? absoluteUrl(img.url, base) : "");
     if (url && !/\.svg(\?|#|$)|sprite|\/dist\//i.test(url) && !urls.includes(url)) urls.push(url);
   }
   return urls;
@@ -187,7 +188,6 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
   // No explicit price unit: the price is quoted per the order unit ("10 Piece" -> "Piece").
   const priceUnit = str(price?.unit) || str(product.minimumOrderQuantity).replace(/^\s*[\d.,]+\s*/, "").trim();
   const address = (seller?.address as Loose | undefined) ?? {};
-  const phones = seller?.phone;
   const yearRaw = Number(seller?.yearOfEst);
 
   const specifications: Record<string, string> = {};
@@ -211,9 +211,10 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
   const rawCategory = str(product.category).trim();
   const category = rawCategory.toLowerCase() === sellerName ? "" : rawCategory;
   const subCategory = str(product.subCategory);
+  const productType = str(product.productType);
 
   // Key features: explicit "Key Features:" block in the text, else the page's own bullet list,
-  // else the first few specifications (IndiaMart's headline attributes) so the column isn't blank when data exists.
+  // else empty — specifications are never copied in here.
   const description = parseDescription(str(product.description));
   if (Object.keys(description.key_features).length === 0) {
     const scraped = (product.keyFeatures as Record<string, unknown> | undefined) ?? {};
@@ -222,22 +223,21 @@ export function buildEb2bmartRecord(product: Loose, seller: Loose | null): Eb2bm
       if (key && value) description.key_features[key] = decodeEntities(str(value));
     }
   }
-  if (Object.keys(description.key_features).length === 0) {
-    for (const [key, value] of Object.entries(specifications).slice(0, 5)) description.key_features[key] = value;
-  }
 
   return {
     product_name: decodeEntities(str(product.name)),
     price: { amount: price?.value ?? null, currency: price?.currency || "INR" },
     priceUnit,
-    sub_category: category || subCategory,
-    product_type: subCategory || category,
+    // Breadcrumb-mapped records carry both explicitly; older records fall back to the category/sub-category pair.
+    sub_category: productType ? subCategory || category : category || subCategory,
+    product_type: productType || subCategory || category,
     seller: {
       name: decodeEntities(str(seller?.name)),
       address: decodeEntities(str(address.raw)),
       state: str(address.state),
       country: str(address.country) || "India",
-      contact_details: Array.isArray(phones) ? phones.join(", ") : str(phones),
+      // Seller contact details are never scraped; the column stays so the platform template keeps its shape.
+      contact_details: "",
       logo_url: str(seller?.logoUrl),
     },
     company: {

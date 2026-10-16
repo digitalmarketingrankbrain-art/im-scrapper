@@ -22,6 +22,7 @@ const activitySchema = new Schema(
 const scrapeJobSchema = new Schema(
   {
     sourceUrl: { type: String, required: true },
+    mode: { type: String, enum: ["product", "catalog", "listing"] },
     sellerId: { type: Schema.Types.ObjectId, ref: "Seller" },
     status: {
       type: String,
@@ -38,6 +39,8 @@ const scrapeJobSchema = new Schema(
     productsFound: { type: Number, default: 0 },
     productsProcessed: { type: Number, default: 0 },
     productsMissing: { type: Number, default: 0 },
+    productsSkipped: { type: Number, default: 0 },
+    productsFailed: { type: Number, default: 0 },
     imagesTotal: { type: Number, default: 0 },
     imagesDownloaded: { type: Number, default: 0 },
     imagesFailed: { type: Number, default: 0 },

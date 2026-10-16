@@ -24,14 +24,14 @@ export async function fetchJobResults(jobId: string): Promise<JobResultsView> {
   return (await parseJsonOrThrow(res)) as JobResultsView;
 }
 
-export async function createJob(params: string | { sourceUrl: string }): Promise<{ jobId: string; status: string }> {
+export async function createJob(params: string | { sourceUrl: string; mode?: "auto" | "product" | "catalog" | "listing" }): Promise<{ jobId: string; status: string; mode?: string }> {
   const payload = typeof params === "string" ? { sourceUrl: params } : params;
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return (await parseJsonOrThrow(res)) as { jobId: string; status: string };
+  return (await parseJsonOrThrow(res)) as { jobId: string; status: string; mode?: string };
 }
 
 export async function deleteJob(jobId: string): Promise<{ status: string; message: string }> {

@@ -1,6 +1,7 @@
 import { AlertIcon, DownloadIcon } from "@/components/icons";
 import { JobActivity } from "@/components/JobActivity";
 import { StatusBadge } from "@/components/StatusBadge";
+import { imagesHandled, productBreakdown, productsHandled } from "@/lib/progress";
 import type { ScrapeJobView } from "@/types/dashboard";
 
 const ERROR_TYPE_LABELS: Record<string, string> = {
@@ -19,13 +20,11 @@ const ERROR_TYPE_LABELS: Record<string, string> = {
 function phaseMessage(job: ScrapeJobView): string | null {
   switch (job.phase) {
     case "discovering":
-      return `Step 1/4 · Scanning the site — ${job.pagesProcessed ?? 0} of ${job.pagesDiscovered || "?"} pages found so far`;
+      return `Step 1/3 · Scanning the site — ${job.pagesProcessed ?? 0} of ${job.pagesDiscovered || "?"} pages`;
     case "scraping":
-      return `Step 2/4 · Found ${job.pagesDiscovered} pages and ${job.productsFound} products — saving ${job.productsProcessed ?? 0}/${job.productsFound}`;
-    case "verifying":
-      return `Step 3/4 · Checking for missed products${job.retryRound ? ` — retry round ${job.retryRound}` : ""}`;
+      return `Step 2/3 · Scraping products — ${productsHandled(job)}/${job.productsFound} done (${productBreakdown(job)})`;
     case "downloading":
-      return `Step 4/4 · Downloading images — ${(job.imagesDownloaded ?? 0) + (job.imagesFailed ?? 0)}/${job.imagesTotal ?? "?"}`;
+      return `Step 3/3 · Saving images — ${imagesHandled(job)}/${job.imagesTotal ?? "?"}`;
     default:
       return null;
   }
@@ -53,12 +52,12 @@ export function JobProgressCard({ job }: { job: ScrapeJobView }) {
       <p className="mt-2 text-xs tabular-nums text-slate-500 dark:text-slate-400">
         {job.pagesProcessed ?? 0}/{job.pagesDiscovered || "?"} pages &middot;{" "}
         {showTotals || job.status === "completed"
-          ? `${job.productsProcessed ?? 0}/${job.productsFound ?? 0} products saved`
+          ? `${productsHandled(job)}/${job.productsFound ?? 0} products (${productBreakdown(job)})`
           : "counting products…"}
       </p>
       {(job.imagesTotal ?? 0) > 0 && (job.status === "completed" || job.phase === "downloading") && (
         <p className="mt-1 text-xs tabular-nums text-slate-500 dark:text-slate-400">
-          {job.imagesDownloaded ?? 0}/{job.imagesTotal} images downloaded
+          {imagesHandled(job)}/{job.imagesTotal} images ({job.imagesDownloaded ?? 0} saved)
           {job.imagesFailed ? ` · ${job.imagesFailed} failed` : ""}
         </p>
       )}

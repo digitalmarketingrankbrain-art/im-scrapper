@@ -2,32 +2,29 @@
 
 import { AlertIcon, CheckCircleIcon, SpinnerIcon } from "@/components/icons";
 import { StatusBadge } from "@/components/StatusBadge";
+import { imagesHandled, productBreakdown, productsHandled } from "@/lib/progress";
 import type { ScrapeJobView } from "@/types/dashboard";
 
 type Phase = NonNullable<ScrapeJobView["phase"]>;
 type StepState = "done" | "active" | "pending" | "failed";
 
-const PHASE_ORDER: Phase[] = ["discovering", "scraping", "verifying", "downloading", "done"];
+// "verifying" is not a step of the current pipeline; jobs that still carry it count as scraping.
+const PHASE_ORDER: Phase[] = ["discovering", "scraping", "downloading", "done"];
 
 function stepDetail(job: ScrapeJobView, phase: Phase): string {
   switch (phase) {
     case "discovering":
       return `${job.pagesProcessed ?? 0} pages fetched · ${job.pagesDiscovered || "?"} found`;
     case "scraping":
-      return `${job.productsProcessed ?? 0}/${job.productsFound ?? 0} products saved`;
-    case "verifying":
-      return job.retryRound ? `Retry round ${job.retryRound}` : "Checking for missed products";
+      return `${productsHandled(job)}/${job.productsFound ?? 0} products · ${productBreakdown(job)}`;
     default:
-      return `${(job.imagesDownloaded ?? 0) + (job.imagesFailed ?? 0)}/${job.imagesTotal ?? "?"} images${
-        job.imagesFailed ? ` · ${job.imagesFailed} failed` : ""
-      }`;
+      return `${imagesHandled(job)}/${job.imagesTotal ?? "?"} images${job.imagesFailed ? ` · ${job.imagesFailed} failed` : ""}`;
   }
 }
 
 const STEPS: { phase: Phase; label: string }[] = [
   { phase: "discovering", label: "Scan site" },
   { phase: "scraping", label: "Save products" },
-  { phase: "verifying", label: "Verify" },
   { phase: "downloading", label: "Download images" },
 ];
 
@@ -37,7 +34,7 @@ function stepState(job: ScrapeJobView, phase: Phase): StepState {
   if (job.status === "failed" || job.status === "cancelled") {
     return phase === "discovering" && (job.productsFound ?? 0) === 0 ? "failed" : "pending";
   }
-  const current = PHASE_ORDER.indexOf(job.phase ?? "discovering");
+  const current = PHASE_ORDER.indexOf(job.phase === "verifying" ? "scraping" : job.phase ?? "discovering");
   const index = PHASE_ORDER.indexOf(phase);
   if (index < current) return "done";
   return index === current && job.status === "running" ? "active" : "pending";
@@ -52,7 +49,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Side panel: overall progress, the 4 pipeline steps with their own counters, and what the worker is doing right now. */
+/** Side panel: overall progress, the 3 pipeline steps with their own counters, and what the worker is doing right now. */
 export function LiveProgressPanel({ job }: { job: ScrapeJobView | undefined }) {
   if (!job) {
     return (
@@ -139,9 +136,9 @@ export function LiveProgressPanel({ job }: { job: ScrapeJobView | undefined }) {
 
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Pages" value={`${job.pagesProcessed ?? 0}/${job.pagesDiscovered || "?"}`} />
-        <Stat label="Products" value={`${job.productsProcessed ?? 0}/${job.productsFound ?? 0}`} />
-        <Stat label="Images" value={`${job.imagesDownloaded ?? 0}/${job.imagesTotal ?? 0}`} />
-        <Stat label="Failed" value={String((job.pagesFailed ?? 0) + (job.imagesFailed ?? 0))} />
+        <Stat label="Products" value={`${productsHandled(job)}/${job.productsFound ?? 0}`} />
+        <Stat label="Images" value={`${imagesHandled(job)}/${job.imagesTotal ?? 0}`} />
+        <Stat label="Failed" value={String((job.pagesFailed ?? 0) + (job.productsFailed ?? 0) + (job.imagesFailed ?? 0))} />
       </div>
     </aside>
   );

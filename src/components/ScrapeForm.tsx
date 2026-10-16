@@ -3,25 +3,39 @@
 import { useState } from "react";
 import { AlertIcon, LinkIcon, SpinnerIcon, ZapIcon } from "@/components/icons";
 
+export type ScrapeModeChoice = "auto" | "product" | "catalog" | "listing";
+
+const MODE_OPTIONS: { value: ScrapeModeChoice; label: string }[] = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "product", label: "Single product" },
+  { value: "catalog", label: "Seller catalog" },
+  { value: "listing", label: "Category / listing" },
+];
+
 interface ScrapeFormProps {
-  onSubmit: (sourceUrl: string) => void;
+  onSubmit: (sourceUrl: string, mode: ScrapeModeChoice) => void;
   submitting: boolean;
   error: string | null;
 }
 
 const SAMPLE_URLS = [
   {
-    label: "Electric Scooter Battery (Ananda Ent.)",
-    url: "https://www.indiamart.com/ananda-enterprises-gaya/?pid=2859589789733&c_id=863&mid=108093&pn=Electric%20Scooter%20Lithium%20Battery",
+    label: "Single product",
+    url: "https://www.indiamart.com/proddetail/embroidery-machine-single-head-2857861993873.html",
   },
   {
-    label: "Hydraulic Machinery (Apex Machinery)",
-    url: "https://www.indiamart.com/proddetail/100-ton-hydraulic-press.html",
+    label: "Seller catalog",
+    url: "https://www.indiamart.com/sar-home-projects/products-and-services.html",
+  },
+  {
+    label: "Category listing",
+    url: "https://dir.indiamart.com/impcat/embroidery-machine.html",
   },
 ];
 
 export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
   const [sourceUrl, setSourceUrl] = useState("");
+  const [mode, setMode] = useState<ScrapeModeChoice>("auto");
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -29,7 +43,7 @@ export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (sourceUrl.trim()) {
-            onSubmit(sourceUrl.trim());
+            onSubmit(sourceUrl.trim(), mode);
           }
         }}
         className="flex flex-col gap-3 sm:flex-row"
@@ -41,10 +55,23 @@ export function ScrapeForm({ onSubmit, submitting, error }: ScrapeFormProps) {
             required
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
-            placeholder="Paste IndiaMART seller or product URL..."
+            placeholder="Paste an IndiaMART product, seller catalog or category URL..."
             className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-blue-600 focus:bg-white focus:ring-4 focus:ring-blue-600/10 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50 dark:placeholder:text-slate-500 dark:focus:border-blue-500 dark:focus:ring-blue-500/10"
           />
         </div>
+
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as ScrapeModeChoice)}
+          aria-label="Scraping mode"
+          className="appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+        >
+          {MODE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
 
         <button
           type="submit"

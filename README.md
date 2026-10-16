@@ -60,10 +60,7 @@ docker-compose.yml          Local MongoDB + Redis containers
 
 ## Getting started
 
-1. Copy the env file and adjust if needed:
-   ```
-   cp .env.example .env.local
-   ```
+1. Edit `.env.local` — the one env file for dev, the worker and Docker (compose overrides the Mongo/Redis hosts for containers).
 2. Start MongoDB and Redis:
    ```
    docker compose up -d

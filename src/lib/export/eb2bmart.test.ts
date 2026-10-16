@@ -19,7 +19,6 @@ const seller = {
   gstNumber: "27ABCDE1234F1Z5",
   businessType: "Trader - Retailer",
   yearOfEst: "2015",
-  phone: [],
 };
 
 const product = {
@@ -79,17 +78,26 @@ describe("EB2BMART export format", () => {
     expect(Object.keys(row)).toEqual([...EB2BMART_COLUMNS]);
     expect(row["price.amount"]).toBe("45000");
     expect(row.specifications).toContain("Battery Voltage: 36 V; Color: Black");
-    // No key-feature text on the page -> falls back to the leading specifications instead of an empty cell
-    expect(row["description.key_features"]).toContain("Battery Voltage: 36 V");
+    // No key-feature text on the page -> the cell stays empty; specifications are not copied into it
+    expect(row["description.key_features"]).toBe("");
   });
 
   it("quotes cells with commas/quotes/newlines and leaves +/- values untouched", () => {
     const csv = toEb2bmartCsv([
-      buildEb2bmartRecord({ ...product, name: 'Bike, 26" wheel', description: "line1\n\nline2" }, { ...seller, phone: ["+91-1234567890"] }),
+      buildEb2bmartRecord(
+        { ...product, name: 'Bike, 26" wheel', description: "line1\n\nline2", specifications: { Tolerance: "+0.5 mm" } },
+        seller,
+      ),
     ]);
     expect(csv).toContain('"Bike, 26"" wheel"');
-    expect(csv).toContain("+91-1234567890");
-    expect(csv).not.toContain("'+91");
+    expect(csv).toContain("+0.5 mm");
+    expect(csv).not.toContain("'+0.5");
+  });
+
+  it("never exports seller contact details, even if a stale record still carries a phone number", () => {
+    const row = toFlatRow(buildEb2bmartRecord(product, { ...seller, phone: ["+91-1234567890"], email: ["a@b.com"] }));
+    expect(row["seller.contact_details"]).toBe("");
+    expect(JSON.stringify(row)).not.toContain("1234567890");
   });
 
   it("splits labelled descriptions into sections", () => {

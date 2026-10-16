@@ -1,15 +1,12 @@
 import * as cheerio from "cheerio";
 import type { ScrapeSource, Seller } from "@/types";
 import { addressFromJsonLd } from "../normalize/address";
-import { extractEmails, extractPhones } from "../normalize/contact";
 import type { ParsedPage } from "../static/parseHtml";
 
 interface JsonLdOrganization {
   "@type"?: string | string[];
   name?: string;
   description?: string;
-  telephone?: string;
-  email?: string;
   address?: unknown;
   url?: string;
   logo?: string | { url?: string };
@@ -143,25 +140,6 @@ export function extractFactsheet(rawHtml: string | undefined): Factsheet {
   return out;
 }
 
-/** Phones from JSON-LD, `tel:` links and "Mobile / Phone / Call" labelled text. Bare 10-digit runs are not trusted: product ids look the same. */
-function extractSellerPhones(org: JsonLdOrganization | undefined, rawHtml: string | undefined): string[] {
-  const found = new Set<string>();
-  if (org?.telephone) extractPhones(org.telephone).forEach((p) => found.add(p));
-  if (rawHtml) {
-    // IndiaMART ships the seller's public contact number in the page's embedded data ("Call Now" button).
-    for (const m of rawHtml.matchAll(/"pnsNumber"\s*:\s*"([^"]+)"/g)) extractPhones(m[1]).forEach((p) => found.add(p));
-    const $ = cheerio.load(rawHtml);
-    $('a[href^="tel:"]').each((_, a) => {
-      extractPhones(decodeURIComponent($(a).attr("href")!.slice(4))).forEach((p) => found.add(p));
-    });
-    const text = $.root().text().replace(/\s+/g, " ");
-    for (const m of text.matchAll(/(?:mobile|phone|call|contact)\s*(?:no\.?|number)?\s*[:\-]?\s*((?:\+91[-\s]?)?[6-9]\d{9})\b/gi)) {
-      extractPhones(m[1]).forEach((p) => found.add(p));
-    }
-  }
-  return [...found];
-}
-
 /** Company logo: JSON-LD `logo`, else an `<img>` whose class/alt says logo — never IndiaMART's own site chrome or icon sprites. */
 function extractLogoUrl(org: JsonLdOrganization | undefined, rawHtml: string | undefined, pageUrl: string): string | undefined {
   const resolve = (raw: string | undefined) => {
@@ -202,58 +180,6 @@ export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSou
   const name = extractSellerName(org?.name, parsed.metaTags["og:site_name"], parsed.title, parsed.rawHtml);
   const description = org?.description ?? parsed.metaTags["description"];
 
-  const phones = extractSellerPhones(org, parsed.rawHtml);
-
-  const emails = new Set<string>();
-
-  // 1. Check org.email
-  if (org?.email) emails.add(org.email.toLowerCase());
-
-  // 2. Check mailto: links in rawHtml
-  if (parsed.rawHtml) {
-    const mailtoMatches = parsed.rawHtml.match(/href=["']mailto:([^"'?]+)/gi);
-    if (mailtoMatches) {
-      mailtoMatches.forEach((m) => {
-        const clean = m.replace(/^href=["']mailto:/i, "").trim().toLowerCase();
-        if (clean && !clean.includes("indiamart.com")) emails.add(clean);
-      });
-    }
-  }
-
-  // 3. Extract direct & obfuscated emails from text and HTML
-  const fullText = (parsed.textSample + " " + (parsed.rawHtml ?? "")).replace(/\s+/g, " ");
-  const extractedList = extractEmails(fullText);
-  extractedList.forEach((e) => {
-    if (!e.includes("indiamart.com") && !e.includes("example.com") && !e.includes("domain.com")) {
-      emails.add(e.toLowerCase());
-    }
-  });
-
-  const obfMatches = fullText.match(/([a-zA-Z0-9._%+-]+)\s*(?:\[at\]|\(at\))\s*([a-zA-Z0-9.-]+)\s*(?:\[dot\]|\(dot\)|\.)\s*([a-zA-Z]{2,})/gi);
-  if (obfMatches) {
-    obfMatches.forEach((m) => {
-      const clean = m.replace(/\s*(?:\[at\]|\(at\))\s*/i, "@").replace(/\s*(?:\[dot\]|\(dot\)|\.)\s*/i, ".").toLowerCase();
-      if (!clean.includes("indiamart.com")) emails.add(clean);
-    });
-  }
-
-  // 4. Fallback if no explicit email found
-  if (emails.size === 0) {
-    try {
-      const parsedUrl = new URL(url);
-      const host = parsedUrl.hostname.replace(/^www\./, "").toLowerCase();
-      if (host && !host.includes("indiamart.com")) {
-        emails.add(`info@${host}`);
-      } else if (host.includes("indiamart.com")) {
-        const pathSegs = parsedUrl.pathname.split("/").filter(Boolean);
-        if (pathSegs.length > 0 && !["proddetail.html", "dir"].includes(pathSegs[0])) {
-          const slug = pathSegs[0].replace(/[^a-z0-9]/gi, "").toLowerCase();
-          if (slug) emails.add(`${slug}@indiamart.com`);
-        }
-      }
-    } catch {}
-  }
-
   const address = addressFromJsonLd(org?.address) ?? parseAddressFromText(description) ?? parseAddressFromText(parsed.textSample) ?? parseAddressFromText(parsed.rawHtml);
 
   return {
@@ -262,8 +188,6 @@ export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSou
     name,
     description,
     businessType: extractBusinessType(parsed.title, parsed.textSample + " " + (parsed.rawHtml ?? "")),
-    phone: [...phones],
-    email: [...emails],
     address,
     website: org?.url,
     logoUrl: extractLogoUrl(org, parsed.rawHtml, url),
@@ -273,4 +197,117 @@ export function extractSeller(parsed: ParsedPage, url: string, source: ScrapeSou
     scrapedAt: new Date(),
     updatedAt: new Date(),
   };
+}
+
+type Row = { TITLE?: string; DATA?: unknown };
+
+/** Fields of a seller block that identify a person or a way to reach them — never collected. */
+const CONTACT_FIELD_RE = /phone|mobile|contact|e-?mail|fax|whats ?app|ceo|owner|partner name|director|proprietor name|telephone/i;
+
+export interface DetailSeller {
+  seller: Partial<Seller>;
+  /** The seller's storefront root (`https://www.indiamart.com/<store>/`), the identity shared by every product of that seller. */
+  storeUrl?: string;
+}
+
+/** `https://www.indiamart.com/sar-home-projects/products.html` -> `https://www.indiamart.com/sar-home-projects/`. */
+export function storeRootUrl(raw: string | undefined, base = "https://www.indiamart.com/"): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw, base);
+    if (!/(^|\.)indiamart\.com$/i.test(u.hostname)) return undefined;
+    const slug = u.pathname.split("/").filter(Boolean)[0];
+    if (!slug || /\.html?$/i.test(slug) || ["proddetail", "impcat", "dir", "search.mp"].includes(slug.toLowerCase())) return undefined;
+    return `https://www.indiamart.com/${slug}/`;
+  } catch {
+    return undefined;
+  }
+}
+
+function rowsOf(value: unknown): Row[] {
+  return Array.isArray(value) ? (value as Row[]) : [];
+}
+
+function text(value: unknown): string | undefined {
+  if (value === null || value === undefined || Array.isArray(value) || typeof value === "object") return undefined;
+  const t = String(value).replace(/\s+/g, " ").trim();
+  return t && !/^(na|n\/a|-|null|undefined)$/i.test(t) ? t : undefined;
+}
+
+function camel(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+(.)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : ""))
+    .replace(/^./, (c) => c.toLowerCase());
+}
+
+/**
+ * Seller block of a product detail page (`__NEXT_DATA__` serviceRes.Data[0]) — the "About <seller>" section.
+ * Only fields the page actually fills in are returned; contact numbers, e-mail and people's names are skipped.
+ */
+export function extractSellerFromDetail(parsed: ParsedPage, pageUrl: string, source: ScrapeSource): DetailSeller | undefined {
+  const root = (parsed.nextData as { props?: { pageProps?: { serviceRes?: { Data?: unknown } } } } | undefined)?.props?.pageProps?.serviceRes?.Data;
+  const d = Array.isArray(root) ? (root[0] as Record<string, unknown> | undefined) : undefined;
+  const name = text(d?.COMPANYNAME);
+  if (!d || !name) return undefined;
+
+  const storeUrl = storeRootUrl(text(d.URL), pageUrl);
+
+  const statutory = new Map(rowsOf(d.Statutory_Profile).map((r) => [String(r.TITLE ?? "").trim().toLowerCase(), text(r.DATA)]));
+  const basic = rowsOf(d.Basic_Information)
+    .map((r) => ({ title: String(r.TITLE ?? "").trim(), value: text(r.DATA) }))
+    .filter((r) => r.title && r.value && !CONTACT_FIELD_RE.test(r.title));
+  const basicValue = (re: RegExp) => basic.find((r) => re.test(r.title))?.value;
+
+  // Everything else the seller block shows (GST registration year / legal status / nature of business...), kept by label.
+  const handled = /^(legal status of firm|year of establishment|total number of employees|annual turnover|nature of business)$/i;
+  const extra: Record<string, unknown> = {};
+  for (const row of basic) if (!handled.test(row.title)) extra[camel(row.title)] = row.value;
+
+  const memberSince = text(d.GLUSR_USR_MEMBERSINCE);
+  if (memberSince) extra.memberSince = memberSince.slice(0, 10);
+  const rating = text(d.SELLER_RATING);
+  if (rating) extra.rating = Number(rating) || rating;
+  const ratingCount = (d.SELLER_RATING_COUNTS as { total_count?: number } | undefined)?.total_count;
+  if (ratingCount) extra.ratingCount = ratingCount;
+  if (d.GST_VERIFIED === 1 || d.GST_VERIFIED_FLAG === 1) extra.gstVerified = true;
+
+  const city = text(d.CITY) ?? text(d.SHORT_ADDRESS);
+  const rawAddress = text(d.LONG_ADDRESS) ?? text(d.ADDRESS) ?? city;
+  const parts = rawAddress?.split(",").map((p) => p.trim()).filter(Boolean) ?? [];
+  const state = text(d.GLUSR_USR_STATE) ?? (parts.length > 1 && parts[parts.length - 1] !== city ? parts[parts.length - 1] : undefined);
+  const address = rawAddress ? { raw: rawAddress, city, state, postalCode: text(d.GLUSR_USR_ZIP), country: text(d.GLUSR_USR_COUNTRYNAME) } : undefined;
+
+  const logo = text(d.GLUSR_USR_LOGO_IMG);
+  const seller: Partial<Seller> = {
+    source,
+    sourceUrl: storeUrl ?? `indiamart-seller:${statutory.get("gst no.") ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    name,
+    description: text(d.GLUSR_USR_DESC),
+    businessType: text(d.GLUSR_USR_BIZ_TYPE) ?? basicValue(/^nature of business$/i),
+    address,
+    logoUrl: logo ? new URL(logo, pageUrl).toString() : undefined,
+    gstNumber: statutory.get("gst no."),
+    yearOfEst: text(d.GLUSR_USR_YEAR_OF_ESTB) ?? basicValue(/^year of establishment$/i)?.match(/(19|20)\d\d/)?.[0],
+    legalStatus: text(d.GL_LEGAL_STATUS_VAL) ?? basicValue(/^legal status of firm$/i),
+    numberOfEmployees: text(d.GLUSR_NOOF_EMP_VAL) ?? basicValue(/^total number of employees$/i),
+    annualTurnover: text(d.GL_TURNOVER_VAL) ?? basicValue(/^annual turnover$/i),
+    metadata: Object.keys(extra).length > 0 ? extra : undefined,
+    scrapedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  return { seller, storeUrl };
+}
+
+/** Fills only the gaps in `seller` from the seller's own About Us page (the factsheet); existing values win. */
+export function mergeStorePage(seller: Partial<Seller>, aboutHtml: string | undefined): Partial<Seller> {
+  if (!aboutHtml) return seller;
+  const merged = { ...seller };
+  const factsheet = extractFactsheet(aboutHtml);
+  const year = extractYearOfEst(aboutHtml);
+  if (year && !factsheet.yearOfEst) factsheet.yearOfEst = year;
+  for (const [key, value] of Object.entries(factsheet)) {
+    if (value && !merged[key as keyof Factsheet]) Object.assign(merged, { [key]: value });
+  }
+  return merged;
 }

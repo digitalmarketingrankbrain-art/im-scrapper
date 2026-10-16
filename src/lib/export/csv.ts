@@ -35,8 +35,6 @@ export function formatProductRow(
       .join(" | ");
   }
 
-  const emails = seller?.email ? (Array.isArray(seller.email) ? seller.email.join(" / ") : String(seller.email)) : "";
-
   const price = product.price as { raw?: string; value?: number; currency?: string; unit?: string } | undefined;
   let priceStr = price?.raw || "";
   if (!priceStr && price?.value) {
@@ -61,6 +59,7 @@ export function formatProductRow(
     "MOQ / Unit": moq,
     "Category": category,
     "Sub Category": subCategory,
+    "Product Type": String(product.productType ?? ""),
     "Brand": brand,
     "Model": model,
     "Description": product.description ?? "",
@@ -68,7 +67,6 @@ export function formatProductRow(
     "Main Image URL": mainImage,
     "All Image URLs": allImages,
     "Seller Name": seller?.name ?? "",
-    "Seller Email": emails,
     "Seller GST": seller?.gstNumber ?? "",
     "Seller Address": addressObj?.raw ?? "",
     "Seller Business Type": seller?.businessType ?? "",

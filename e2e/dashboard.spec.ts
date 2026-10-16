@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const URL_INPUT_PLACEHOLDER = /indiamart\.com/;
+const URL_INPUT_PLACEHOLDER = /Paste an IndiaMART/;
 
 function jsonJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -99,7 +99,8 @@ test("submitting a URL shows live progress then seller/product results", async (
 
   await expect(page.getByTestId("tab-seller")).toBeVisible();
   await expect(page.getByText("Test Seller Pvt Ltd")).toBeVisible();
-  await expect(page.getByText("sales@testseller.example")).toBeVisible();
+  // Seller contact details are never shown, even if an API response carried them.
+  await expect(page.getByText("sales@testseller.example")).toHaveCount(0);
 
   await page.getByTestId("tab-products").click();
   await expect(page.getByText("Test Widget")).toBeVisible();
@@ -201,7 +202,8 @@ test("shows the failed status and error list when a job fails", async ({ page })
   await page.getByRole("button", { name: "Scrape" }).click();
 
   await expect(page.getByTestId("job-status")).toHaveText("failed", { timeout: 5000 });
-  await expect(page.getByText("Refusing to fetch private/internal address")).toBeVisible();
+  // The error shows in both the progress card and the live panel.
+  await expect(page.getByTestId("job-progress-card").getByText("Refusing to fetch private/internal address")).toBeVisible();
   await expect(page.getByRole("link", { name: "Export JSON" })).toHaveCount(0);
 });
 
@@ -233,7 +235,7 @@ test("shows an empty-state message when a completed job found no products", asyn
 
   await expect(page.getByTestId("job-status")).toHaveText("completed", { timeout: 5000 });
   await page.getByTestId("tab-products").click();
-  await expect(page.getByText("No product pages detected on this crawl.")).toBeVisible();
+  await expect(page.getByText("No products found matching your filter.")).toBeVisible();
 });
 
 test("error boundary catches a render error and offers retry", async ({ page }) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CheckCircleIcon, ExternalLinkIcon, FileTextIcon, GlobeIcon, MailIcon, MapPinIcon, PhoneIcon, TagIcon, ClockIcon } from "@/components/icons";
+import { CheckCircleIcon, ExternalLinkIcon, FileTextIcon, GlobeIcon, MapPinIcon, TagIcon, ClockIcon } from "@/components/icons";
 import type { SellerView } from "@/types/dashboard";
 
 function FieldCard({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
@@ -56,38 +56,6 @@ export function SellerDetails({ seller }: { seller: SellerView }) {
 
       {/* Grid Details */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {seller.phone && seller.phone.length > 0 && (
-          <FieldCard icon={<PhoneIcon width="16" height="16" />} label="Phone Contact">
-            <div className="flex flex-wrap gap-1.5">
-              {seller.phone.map((ph) => (
-                <a
-                  key={ph}
-                  href={`tel:${ph}`}
-                  className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-xs hover:text-blue-600 dark:bg-slate-800 dark:text-slate-200"
-                >
-                  📞 {ph}
-                </a>
-              ))}
-            </div>
-          </FieldCard>
-        )}
-
-        {seller.email && seller.email.length > 0 && (
-          <FieldCard icon={<MailIcon width="16" height="16" />} label="Email Address">
-            <div className="flex flex-wrap gap-1.5">
-              {seller.email.map((em) => (
-                <a
-                  key={em}
-                  href={`mailto:${em}`}
-                  className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-xs hover:text-blue-600 dark:bg-slate-800 dark:text-slate-200"
-                >
-                  ✉️ {em}
-                </a>
-              ))}
-            </div>
-          </FieldCard>
-        )}
-
         {seller.website && (
           <FieldCard icon={<GlobeIcon width="16" height="16" />} label="Official Website">
             <a
@@ -118,6 +86,29 @@ export function SellerDetails({ seller }: { seller: SellerView }) {
             <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{seller.yearOfEst}</span>
           </FieldCard>
         )}
+        {seller.legalStatus && (
+          <FieldCard icon={<TagIcon width="16" height="16" />} label="Legal Status">
+            <span className="text-xs font-bold">{seller.legalStatus}</span>
+          </FieldCard>
+        )}
+
+        {seller.numberOfEmployees && (
+          <FieldCard icon={<TagIcon width="16" height="16" />} label="Employees">
+            <span className="text-xs font-bold">{seller.numberOfEmployees}</span>
+          </FieldCard>
+        )}
+
+        {seller.annualTurnover && (
+          <FieldCard icon={<TagIcon width="16" height="16" />} label="Annual Turnover">
+            <span className="text-xs font-bold">{seller.annualTurnover}</span>
+          </FieldCard>
+        )}
+
+        {Object.entries(seller.metadata ?? {}).map(([key, value]) => (
+          <FieldCard key={key} icon={<TagIcon width="16" height="16" />} label={key.replace(/([A-Z])/g, " $1")}>
+            <span className="text-xs font-bold">{String(value)}</span>
+          </FieldCard>
+        ))}
       </div>
 
       {/* Description */}

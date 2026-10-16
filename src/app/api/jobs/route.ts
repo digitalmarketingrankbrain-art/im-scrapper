@@ -3,7 +3,11 @@ import { dbConnect } from "@/lib/db/connect";
 import { ScrapeJobModel } from "@/lib/db/models/ScrapeJob";
 import { getScrapeQueue } from "@/lib/queue/scrapeQueue";
 import { processScrapeJob } from "@/lib/queue/processScrapeJob";
+import { detectScrapeMode } from "@/scraper/discover";
 import { isSafeUrl } from "@/scraper/security/ssrf";
+import type { ScrapeJobMode } from "@/types";
+
+const MODES: ScrapeJobMode[] = ["product", "catalog", "listing"];
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -19,6 +23,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: "error", message: "Invalid sourceUrl" }, { status: 400 });
   }
 
+  // Optional: pick the scraping mode explicitly; otherwise it is worked out from the URL.
+  const requestedMode = body?.mode;
+  if (requestedMode !== undefined && requestedMode !== "auto" && !MODES.includes(requestedMode)) {
+    return NextResponse.json({ status: "error", message: `Invalid mode — use one of: auto, ${MODES.join(", ")}` }, { status: 400 });
+  }
+  const mode: ScrapeJobMode = MODES.includes(requestedMode) ? requestedMode : detectScrapeMode(sourceUrl);
+
   if (!(await isSafeUrl(sourceUrl))) {
     return NextResponse.json(
       { status: "error", message: "sourceUrl resolves to a private/internal address" },
@@ -27,7 +38,7 @@ export async function POST(request: NextRequest) {
   }
 
   await dbConnect();
-  const job = await ScrapeJobModel.create({ sourceUrl, status: "pending" });
+  const job = await ScrapeJobModel.create({ sourceUrl, mode, status: "pending" });
 
   try {
     await getScrapeQueue().add("scrape", { jobId: String(job._id), sourceUrl }, { jobId: String(job._id) });
@@ -40,7 +51,7 @@ export async function POST(request: NextRequest) {
     console.error(`ScrapeJob ${job._id} execution failed:`, err);
   });
 
-  return NextResponse.json({ jobId: job._id, status: job.status }, { status: 201 });
+  return NextResponse.json({ jobId: job._id, status: job.status, mode }, { status: 201 });
 }
 
 /**

@@ -27,6 +27,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   job.pagesFailed = 0;
   job.retryRound = 0;
   job.productsMissing = 0;
+  job.productsSkipped = 0;
+  job.productsFailed = 0;
+  job.imagesTotal = 0;
+  job.imagesDownloaded = 0;
+  job.imagesFailed = 0;
   job.pagesDiscovered = 0;
   job.pagesProcessed = 0;
   job.productsFound = 0;

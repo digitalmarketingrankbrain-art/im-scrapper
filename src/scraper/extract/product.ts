@@ -104,7 +104,7 @@ export function extractCardDetails($: cheerio.CheerioAPI, root: ReturnType<cheer
   return { specs, keyFeatures };
 }
 
-function findAllProducts(jsonLd: unknown[]): JsonLdProduct[] {
+export function findAllProducts(jsonLd: unknown[]): JsonLdProduct[] {
   const results: JsonLdProduct[] = [];
 
   function walk(entry: unknown) {
@@ -151,7 +151,7 @@ interface IndiaMartProductItemData {
 }
 
 /** Extracts all product items from IndiaMart's SSR `__NEXT_DATA__` serviceRes.Data payload. */
-function findAllIndiaMartProductData(nextData: unknown): IndiaMartProductItemData[] {
+export function findAllIndiaMartProductData(nextData: unknown): IndiaMartProductItemData[] {
   if (!nextData || typeof nextData !== "object") return [];
   const props = (nextData as { props?: unknown }).props;
   if (!props || typeof props !== "object") return [];
@@ -164,7 +164,7 @@ function findAllIndiaMartProductData(nextData: unknown): IndiaMartProductItemDat
   return data.filter((item) => item && typeof item === "object") as IndiaMartProductItemData[];
 }
 
-function specifications(rows: IndiaMartSpecRow[] | undefined): Record<string, string> | undefined {
+export function specifications(rows: IndiaMartSpecRow[] | undefined): Record<string, string> | undefined {
   if (!rows?.length) return undefined;
   const specs: Record<string, string> = {};
   for (const row of rows) {
@@ -231,8 +231,12 @@ function extractProductName(item: JsonLdProduct | undefined, metaTitle: string |
   return "Unknown product";
 }
 
-/** Extracts a single primary product from JSON-LD / metadata / SSR payload. */
-export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSource): Partial<Product> {
+/**
+ * Extracts a single primary product from JSON-LD / metadata / SSR payload.
+ * `detailRoot` scopes the visible-DOM spec fallback to one container (a product page's spec table);
+ * without it the whole <body> is read, which on a detail page would also sweep in the seller's info rows.
+ */
+export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSource, opts: { detailRoot?: string } = {}): Partial<Product> {
   const items = findAllProducts(parsed.jsonLd);
   const item = items[0];
   const imItems = findAllIndiaMartProductData(parsed.nextData);
@@ -249,7 +253,7 @@ export function extractProduct(parsed: ParsedPage, url: string, source: ScrapeSo
   // Product detail pages: read the visible spec table / feature list for whatever the JSON payloads lacked.
   if (parsed.rawHtml) {
     const $ = cheerio.load(parsed.rawHtml);
-    const details = extractCardDetails($, $("body"));
+    const details = extractCardDetails($, $(opts.detailRoot ?? "body"));
     if ((!specs || Object.keys(specs).length === 0) && Object.keys(details.specs).length > 0) specs = details.specs;
     if (Object.keys(details.keyFeatures).length > 0) keyFeatures = details.keyFeatures;
   }

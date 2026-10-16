@@ -13,6 +13,8 @@ export interface CrawlOptions {
   maxPages?: number;
   concurrency?: number;
   useSitemap?: boolean;
+  /** Extra filter on discovered links (the start URL is always fetched). Lets a caller crawl listing pages without also fetching every product page they link to. */
+  shouldFollow?: (url: string) => boolean;
   /** Called as each page finishes (success or fail), so callers can track live progress instead of waiting for the whole crawl. `discovered` is the running total of distinct URLs found so far. */
   onPage?: (page: CrawlResultPage, discovered: number) => void | Promise<void>;
   onActivity?: (activity: CrawlActivity) => void;
@@ -106,6 +108,7 @@ export class CrawlSession {
   private readonly concurrency: number;
   private readonly onPage?: CrawlOptions["onPage"];
   private readonly onActivity?: CrawlOptions["onActivity"];
+  private readonly shouldFollow?: CrawlOptions["shouldFollow"];
   private sitemapPromise: Promise<void> | null;
   /** Shared across every worker — one 429 anywhere pauses all of them. */
   private cooldownUntil = 0;
@@ -122,6 +125,7 @@ export class CrawlSession {
     this.concurrency = options.concurrency ?? env.MAX_CONCURRENCY;
     this.onPage = options.onPage;
     this.onActivity = options.onActivity;
+    this.shouldFollow = options.shouldFollow;
     this.queue.enqueue(normalizedStart, 0);
     this.sitemapPromise = options.useSitemap ? this.seedFromSitemap() : null;
   }
@@ -130,7 +134,7 @@ export class CrawlSession {
     const origin = new URL(this.startUrl).origin;
     for (const rawUrl of await discoverSitemapUrls(origin)) {
       const normalized = normalizeUrl(rawUrl);
-      if (normalized && isSameDomain(normalized, this.allowedHost, this.startUrl)) this.queue.enqueue(normalized, 1);
+      if (normalized && this.canFollow(normalized)) this.queue.enqueue(normalized, 1);
     }
   }
 
@@ -169,10 +173,14 @@ export class CrawlSession {
     if (depth >= this.maxDepth) return;
     for (const rawLink of page.scrapeResult?.data?.links ?? []) {
       const normalized = normalizeUrl(rawLink);
-      if (normalized && isSameDomain(normalized, this.allowedHost, this.startUrl)) {
+      if (normalized && this.canFollow(normalized)) {
         this.queue.enqueue(normalized, depth + 1);
       }
     }
+  }
+
+  private canFollow(url: string): boolean {
+    return isSameDomain(url, this.allowedHost, this.startUrl) && (this.shouldFollow?.(url) ?? true);
   }
 
   private noteResult(result: ScrapeStaticResult): void {

@@ -44,7 +44,7 @@ Agar future mein "address already in use" error aaye, pehle `netstat -ano | grep
 
 ## MongoDB connection gotcha
 
-`MONGODB_URI` mein `localhost` use mat karo — Node is machine pe pehle IPv6 (`::1`) try karta hai jo timeout hoke ~26s delay deta hai pehle request pe. **`127.0.0.1` use karo**, verified fix hai (`.env.local` aur `.env.example` dono mein already set hai).
+`MONGODB_URI` mein `localhost` use mat karo — Node is machine pe pehle IPv6 (`::1`) try karta hai jo timeout hoke ~26s delay deta hai pehle request pe. **`127.0.0.1` use karo**, verified fix hai (`.env.local` mein set hai — ab sirf ek hi env file hai).
 
 ## Current status (as of 2026-09-18)
 
@@ -144,9 +144,41 @@ User explicitly asked (again, without waiting to be consulted) for: component sp
 - [x] **Data Scraping & Extraction Testing Pass (2026-09-24):** Added `src/scraper/extract/extract.test.ts` (unit tests for `extractSeller` & `extractProduct`), added support for `"Rs"` / `"Rs."` in `src/scraper/normalize/price.ts` (`parseMoney`), created & executed full DB persistence test (`scratch/test-scraper.ts`). Verified that all seller fields (name, description, phone, email, address, website) and product fields (name, description, category, brand, price, MOQ, specifications, images) are correctly scraped, extracted, and saved to MongoDB. All 50 Vitest unit tests passing cleanly.
 - [x] **Multi-Product Seller Catalog Extraction & Scoping Pass (2026-09-25):** Created `extractProducts` in `src/scraper/extract/product.ts` to extract ALL products listed on a page (from schema.org `@graph` JSON-LD arrays & IndiaMart SSR `__NEXT_DATA__` `serviceRes.Data` arrays). Added seller path-scoping (`isSameDomain` in `src/scraper/crawler/domainPolicy.ts`) so crawls remain 100% focused on the target seller's store and product pages without wandering off to unrelated sellers. All 50 unit tests and `tsc --noEmit` pass cleanly.
 
+## Revised scraping flow — three modes, one product scraper (2026-10-15)
+
+The old flow (BFS-crawl a whole seller store, merge listing cards with detail pages, one seller per job derived from the start URL) was replaced. **Read this section before touching scraper/job code.**
+
+**Flow:** `POST /api/jobs { sourceUrl, mode? }` → `processScrapeJob` → (1) **discover product URLs** → (2) every URL through **`scrapeSingleProduct`** → (3) save + download images.
+
+| Mode | Input | Discovery (`src/scraper/discover/index.ts`) |
+|---|---|---|
+| `product` | `/proddetail/...` URL (or a store `?pid=` link) | the URL itself |
+| `catalog` | seller store URL | `CrawlSession` over the store (never fetches `/proddetail/` pages — new `shouldFollow` option) + `collectProductUrls` |
+| `listing` | category/`impcat`/`dir.` page | that one page only (no pagination yet) + `collectProductUrls` |
+
+`detectScrapeMode(url)` picks the mode; the UI form has an override selector, API accepts `mode: auto|product|catalog|listing`.
+
+**`scrapeSingleProduct(url)`** (`src/scraper/product/scrapeSingleProduct.ts`, never throws): fetch → product page? → **specs >= 3 (`MIN_SPECS`) else skip, before any image/seller work** → name/seller present → seller block → seller's About Us page for extra facts (cached per store per job) → result `ok | skipped | failed`. Extraction is in `extract/productDetail.ts` (reads the page's `__NEXT_DATA__` serviceRes.Data[0]: ISQ specs, images, seller fields; JSON-LD BreadcrumbList).
+
+**Rules implemented:** images max 5 (primary image first, `limitImages`) · breadcrumb `extract/breadcrumb.ts`: crumb[1]→`subCategory` (also copied to `category` for the dashboard filter), crumb[2]→`productType`, crumbs 1 and 4 never stored, missing crumbs = undefined · **no seller contact data anywhere**: phone/email/owner names removed from extractor, Mongoose schema, types, API, UI, CSV; EB2BMART `seller.contact_details` column kept but always blank; seller facts that remain live in typed fields + `seller.metadata` (member since, rating, GST registration year/legal status...) · seller identity = store root URL (`Data.URL`), falls back to `indiamart-seller:<gst|name-slug>` · dedupe via `Product.productKey` (IndiaMart numeric id, unique partial index) in `upsertProduct`, plus URL-level dedupe in `runProductBatch` · one failing product is logged + batch continues (`src/lib/queue/productBatch.ts`, temporary failures get `MAX_VERIFY_ROUNDS` retry rounds).
+
+**New/changed data:** `Product.productKey/productType/jobId`, `ScrapeJob.mode/productsSkipped/productsFailed`, `GET /api/jobs/:id/results` returns products by `jobId` (listing jobs span many sellers; `job.sellerId` = first seller only). Job phases are now discovering → scraping → downloading (`verifying` stays in the enum for old jobs).
+
+**Deleted:** `normalize/contact.ts` (+test). **Now dead code, safe to remove next session:** `extractProducts`/`extractDomProducts` (+ `eval` of `drop_product`) in `extract/product.ts`, `mergeDetailIntoCard`, `extractSeller` (generic, kept only for its tests/helpers), `CrawlSession.retryFailed` is still used by catalog discovery.
+
+**Known limits / not done:**
+- Listing mode reads one page — no pagination/"load more".
+- Catalog products found only as store `#<id>` anchors with no `/proddetail/` link are not scraped (we don't guess slugs).
+- Product pages are fetched sequentially (~300-600ms apart) to stay under IndiaMart's 429 limit; `concurrency` is only used by the catalog crawl.
+- Existing rows keep old data: sellers saved before this change may still hold `phone`/`email` in MongoDB (schema no longer writes them). Clean with `db.sellers.updateMany({}, {$unset:{phone:"",email:""}})` — not run automatically.
+- Old products keyed only by (sellerId,name) get a `productKey` the next time they are re-scraped; the old (sellerId,name) unique index is still there, so two different products with the same name from one seller collide.
+- The dashboard UI only shows mode in the API payload; there is no mode badge yet. Listing-job results tab shows the first seller only.
+
+**Verification (2026-10-15):** unit tests (breadcrumb, productDetail via `scrapeSingleProduct`, discovery, batch) + live run of all three modes against real IndiaMart into a throwaway DB — see the session summary / `scratch-verify.ts` (deleted after the run).
+
 ## Next step (pick this up first in the next session)
 
-Project is functionally complete across all 10 phases, frontend-optimization pass, and data scraping verification pass. All 50 unit tests and E2E tests pass cleanly.
+Project is functionally complete across all 10 phases, frontend-optimization pass, data scraping verification pass and the 2026-10-15 three-mode scraping rewrite (above). 107 unit tests pass.
 - Whether to add basic auth before considering any shared/public deployment
 - Whether to invest in fixing the crawl-progress granularity (Known limitations above)
 - Whether to attempt the GitHub push (repo access blocker still unresolved)
@@ -154,3 +186,5 @@ Project is functionally complete across all 10 phases, frontend-optimization pas
 - Whether to revisit the Redux scope now that the pattern exists — e.g. if a second page/route gets added later, `uiSlice` is the natural place to grow rather than re-litigating the choice
 
 Keep updating this file's status list whenever a major decision or phase completes.
+
+**Env files (2026-10-15):** only `.env.local` exists now (`.env.example`, `.env.docker`, `.env.docker.example` deleted). `docker-compose.yml` reads `.env.local` and overrides `MONGODB_URI`/`REDIS_URL`/`NODE_ENV` for the containers. S3 keys (`AWS_*`) go in `.env.local`.

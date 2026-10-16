@@ -27,7 +27,12 @@ services:
     depends_on: [mongo, redis]
     ports:
       - "3002:3002"
-    env_file: .env.docker
+    env_file: .env.local
+    environment:
+      # Inside the compose network the services are reached by name, not 127.0.0.1
+      MONGODB_URI: mongodb://mongo:27017/indiamart_scraper
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
     volumes:
       - images_data:/app/downloads
 
@@ -38,7 +43,12 @@ services:
     restart: unless-stopped
     command: ["npx", "tsx", "src/worker.ts"]
     depends_on: [mongo, redis]
-    env_file: .env.docker
+    env_file: .env.local
+    environment:
+      # Inside the compose network the services are reached by name, not 127.0.0.1
+      MONGODB_URI: mongodb://mongo:27017/indiamart_scraper
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
     # Chromium needs more shared memory than Docker's 64MB default
     shm_size: "1gb"
     volumes:

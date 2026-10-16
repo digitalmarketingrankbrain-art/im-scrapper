@@ -42,9 +42,10 @@ describe("Seller & Product Data Extraction", () => {
 
       expect(seller.name).toBe("Acme Industrial Pvt Ltd");
       expect(seller.description).toBe("Leading manufacturer of industrial tools and machinery");
-      expect(seller.phone).toEqual(["9876543210"]);
-      expect(seller.email).toContain("sales@acmeind.com");
-      expect(seller.email).toContain("info@acmeind.com");
+      // The page lists a phone and e-mail address, but contact details are never collected.
+      expect(seller).not.toHaveProperty("phone");
+      expect(seller).not.toHaveProperty("email");
+      expect(JSON.stringify(seller)).not.toMatch(/9876543210|sales@|info@/);
       expect(seller.website).toBe("https://www.acmeind.com");
       expect(seller.address).toEqual({
         raw: "Plot No 42, GIDC Industrial Area, Ahmedabad, Gujarat, 380015, India",
@@ -56,7 +57,7 @@ describe("Seller & Product Data Extraction", () => {
       });
     });
 
-    it("extracts logo and tel: phones, ignores IndiaMART's own logo and bare 10-digit ids", () => {
+    it("extracts the logo (ignoring IndiaMART's own) and does not collect tel: phones", () => {
       const html = `<html><head><title>X</title></head><body>
         <img alt="im Logo" src="https://hm.imimg.com/template-mdc/imLogo1.png">
         <img class="company-logo" src="//5.imimg.com/data5/SELLER/Default/logo.png">
@@ -64,7 +65,7 @@ describe("Seller & Product Data Extraction", () => {
         <span>Product id 7123456789</span></body></html>`;
       const seller = extractSeller(parseHtml(html, "https://www.indiamart.com/x/"), "https://www.indiamart.com/x/", "indiamart");
       expect(seller.logoUrl).toBe("https://5.imimg.com/data5/SELLER/Default/logo.png");
-      expect(seller.phone).toEqual(["9812345678"]);
+      expect(JSON.stringify(seller)).not.toContain("9812345678");
     });
 
     it("reads GST No. from the About Us factsheet", () => {
@@ -93,7 +94,7 @@ describe("Seller & Product Data Extraction", () => {
 
       expect(seller.name).toBe("Global Tech Traders");
       expect(seller.description).toBe("Exporter of electronic items");
-      expect(seller.phone).toEqual([]);
+      expect(seller).not.toHaveProperty("phone");
     });
   });
 

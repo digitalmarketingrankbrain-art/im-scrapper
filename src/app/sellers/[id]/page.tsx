@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { Pagination } from "@/components/Pagination";
 import { ProductGridCard } from "@/components/ProductGridCard";
-import { ChevronLeftIcon, ExternalLinkIcon, GlobeIcon, InboxIcon, MailIcon, MapPinIcon, PhoneIcon } from "@/components/icons";
+import { ChevronLeftIcon, ExternalLinkIcon, GlobeIcon, InboxIcon, MapPinIcon } from "@/components/icons";
 import { useProducts } from "@/hooks/useProducts";
 import { useSeller, useSellerCategories } from "@/hooks/useSellers";
 
@@ -88,16 +88,6 @@ export default function SellerDetailPage() {
                   {(seller.address?.state || seller.address?.country) && (
                     <span className="flex items-center gap-1">
                       <MapPinIcon width="12" height="12" /> {[seller.address?.state, seller.address?.country].filter(Boolean).join(", ")}
-                    </span>
-                  )}
-                  {seller.phone?.[0] && (
-                    <span className="flex items-center gap-1">
-                      <PhoneIcon width="12" height="12" /> {seller.phone[0]}
-                    </span>
-                  )}
-                  {seller.email?.[0] && (
-                    <span className="flex items-center gap-1">
-                      <MailIcon width="12" height="12" /> {seller.email[0]}
                     </span>
                   )}
                 </div>
